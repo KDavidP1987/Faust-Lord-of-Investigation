@@ -21,15 +21,15 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 6: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
+/// ApiVersion 7: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
 /// (#1), resources (#6) — server stats (#8: playtime + concurrency), and the full admin-control
-/// gate (block/schedule/PvP/window-period/cost + unlock criteria). Deny codes: blocked, schedule,
-/// pvp, window, locked. Bump whenever the wire grows.
+/// gate (block/schedule/PvP/window-period/cost + unlock criteria + proximity-to-object). Deny
+/// codes: blocked, schedule, pvp, window, locked, notnear. Bump whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 6;
+    const int ApiVersion = 7;
 
     static readonly string[] FeatureOrder =
     {

@@ -40,8 +40,14 @@ internal sealed class FeatureConfig
     public ConfigEntry<int> PeriodSeconds { get; init; }
     public ConfigEntry<int> MaxUsesPerPeriod { get; init; }
     public ConfigEntry<string> UnlockRaw { get; init; }
+    // ---- ADMIN_CONTROL axis 7: proximity-to-object requirement ----
+    public ConfigEntry<int> RequireNearPrefab { get; init; }
+    public ConfigEntry<float> RequireNearDistance { get; init; }
 
     public FeatureConfig(string key) { Key = key; }
+
+    /// <summary>True if the player must be within range of a configured object to use this feature.</summary>
+    public bool HasProximity => RequireNearPrefab.Value != 0;
 
     /// <summary>Parsed unlock criterion: None | FinalBoss | BossKill:&lt;guid&gt; | GrantOnly (anything else).</summary>
     public (UnlockKind Kind, int Guid) Unlock
@@ -175,6 +181,13 @@ internal static class Settings
                 "after defeating Dracula (game completion). 'BossKill:<vbloodGuid>' = after defeating that specific " +
                 "V Blood. Admins are exempt (AdminsExempt); '.faust admin grant <player> " + key +
                 "' overrides for any player. (AllBosses/AllQuests are reserved — admin-grant only for now.)"),
+            RequireNearPrefab = config.Bind(section, "RequireNearPrefab", 0,
+                "Proximity gate: if set to an object's PrefabGUID, the player may only use this feature while " +
+                "within RequireNearDistance metres of an instance of that object (e.g. an altar/station placed in a " +
+                "castle, or a world landmark) — so the ability is tied to a place, not usable anywhere. 0 = no " +
+                "proximity requirement. The object must be a placed/world object (one with a tile position)."),
+            RequireNearDistance = config.Bind(section, "RequireNearDistance", 5f,
+                "How close (metres) the player must be to a RequireNearPrefab object. Ignored when RequireNearPrefab = 0."),
         };
         _features[key] = fc;
     }

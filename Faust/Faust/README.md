@@ -124,7 +124,8 @@ effect on server restart.
 | Faust.\<feature\> | WindowSeconds / PeriodSeconds / MaxUsesPerPeriod | `0` | A usage window per recurring period — e.g. `600` / `86400` / `1` = a 10-min window, once per day |
 | Faust.\<feature\> | Availability | `Always` | `Always` / `PvEOnly` / `PvPOnly` — gate on the server's game mode |
 | Faust.\<feature\> | Unlock | `None` | `None` / `FinalBoss` (defeat Dracula) / `BossKill:<vbloodGuid>` — progression gate before use |
-| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / cost / cooldown / window / unlock |
+| Faust.\<feature\> | RequireNearPrefab / RequireNearDistance | `0` / `5` | Require the player to be within N metres of an object (by PrefabGUID) — tie the ability to a place (0 = anywhere) |
+| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
 `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.

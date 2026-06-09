@@ -65,19 +65,20 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 6):** the shapes below are **IMPLEMENTED** and live as of Faust 0.6.0 —
+> **Status (ApiVersion 7):** the shapes below are **IMPLEMENTED** and live as of Faust 0.7.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
 > positions (#1), resources (#6), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) is
 > still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
 > Faust only if an admin prices it). A `-1` in any numeric field is the "not tracked / none recorded
 > yet" sentinel.
 >
-> 0.4.0–0.5.0 completed the **admin-control gate** (`docs/features/ADMIN_CONTROL.md`): per-feature
+> 0.4.0–0.7.0 completed the **admin-control gate** (`docs/features/ADMIN_CONTROL.md`): per-feature
 > item-cost is actually consumed, plus window/period time-locks, PvP-availability, live admin
-> block/schedule overrides, and **unlock criteria** (a feature opens only after a player defeats a
-> configured V Blood / Dracula, or an admin grants it). These surface to BCH as new `[FAUST:err]`
-> deny codes (§4) — no reply-shape change to the queries themselves. The admin operations
-> (`.faust admin …`, incl. `grant`/`revoke`) are server-side chat commands, not wire.
+> block/schedule overrides, **unlock criteria** (a feature opens only after a player defeats a
+> configured V Blood / Dracula, or an admin grants it), and a **proximity requirement** (usable only
+> within range of a configured object). These surface to BCH as new `[FAUST:err]` deny codes (§4) —
+> no reply-shape change to the queries themselves. The admin operations (`.faust admin …`, incl.
+> `grant`/`revoke`) are server-side chat commands, not wire.
 
 ### `castleinfo` (#2) — IMPLEMENTED
 `.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
@@ -186,7 +187,7 @@ heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinc
   (the Uriel convention). Avoid `=`, `;`, `:` inside values.
 - **Errors:** `[FAUST:err] code=<code> [feature=<f>] [item=<guid>] [qty=<n>] [secs=<n>]`
   with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound | badtarget |
-  blocked | schedule | pvp | window | locked`. BCH surfaces a friendly message and the relevant detail:
+  blocked | schedule | pvp | window | locked | notnear`. BCH surfaces a friendly message and the relevant detail:
   - `cost` → `item` + `qty` (the price). `cooldown` / `window` → `secs` (time until reusable;
     `window` = a per-period usage allowance is spent, locked until the period rolls over).
   - `blocked` → `secs` until an admin countdown expires (`secs=-1` = blocked indefinitely until an
@@ -194,7 +195,9 @@ heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinc
   - `pvp` → the feature is disabled for this server's game mode (PvE/PvP-only).
   - `locked` → the player hasn't met the feature's unlock criterion; `need` ∈ `bosskill | finalboss
     | grant` hints what opens it (defeat a specific V Blood / defeat Dracula / be admin-granted).
-  These admin-control codes (ApiVersion 5) are additive; an older BCH can show a generic message.
+  - `notnear` → the player isn't within range of the required object; `item` = the object's
+    PrefabGUID, `dist` = the required radius in metres (the feature is tied to a place).
+  These admin-control codes (ApiVersion ≥5) are additive; an older BCH can show a generic message.
 
 ---
 

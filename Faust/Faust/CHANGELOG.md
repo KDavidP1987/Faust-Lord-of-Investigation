@@ -3,6 +3,14 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.7.0 (2026-06-09)
+
+- **New: tie a feature to a place.** Admins can require players to be **near a specific object** to
+  use a feature — set `RequireNearPrefab` (the object's id) + `RequireNearDistance` (metres) per
+  feature. Put an altar/station in a castle (or pick a world landmark) and the ability only works
+  when standing near it, instead of anywhere in the world.
+- Note: still an early release — the proximity check hasn't been validated in a live session yet.
+
 ## 0.6.0 (2026-06-09)
 
 - **New: `.faust api resources <here|nearest|tindex>`** — see the **total resources stashed in a

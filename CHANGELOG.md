@@ -7,6 +7,29 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.7.0] - 2026-06-09
+
+### Added — proximity requirement (admin-control axis 7)
+
+A feature can require the player to be **near a configured object** to use it. **ApiVersion → 7**;
+new deny code `notnear` (no query reply-shape change).
+
+- New per-feature config: `RequireNearPrefab` (an object's PrefabGUID; `0` = off) +
+  `RequireNearDistance` (metres, default 5). The player may only run the query while within range
+  of an instance of that object — e.g. an altar/station placed in a castle, or a world landmark —
+  so an ability is tied to a place instead of usable anywhere.
+- **`Proximity.PlayerNear`** — scans placed/world objects (those with a `TilePosition`) for one
+  whose prefab matches and is within the radius (no value-indexed ECS query exists, hence a filtered
+  scan; only runs when a feature configures a requirement, and these are on-demand queries).
+- Gate denies `[FAUST:err] code=notnear feature=… item=<prefab> dist=<m>` when the player isn't
+  near. Slots into the evaluation order after PvP, before usage/cost. Admins (`AdminsExempt`) bypass.
+- Contract + `ADMIN_CONTROL.md` updated — all seven admin-control axes now implemented.
+
+### Notes
+
+- Compiles clean (0 warnings). Not yet validated on a live server — needs an in-game pass
+  (configure `RequireNearPrefab` to a placed object, confirm the query works near it and denies away).
+
 ## [0.6.0] - 2026-06-09
 
 ### Added — castle resource intel (#6): sum an enemy castle's contents

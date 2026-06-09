@@ -69,6 +69,14 @@ internal static class FaustAccessGate
         if (!exempt && !PvpAllowed(f))
             return GateResult.Deny($"[FAUST:err] code=pvp feature={featureKey}");
 
+        // Proximity: must be near a configured object to use the feature.
+        if (!exempt && f.HasProximity
+            && !Proximity.PlayerNear(ctx.Event.SenderCharacterEntity, f.RequireNearPrefab.Value, f.RequireNearDistance.Value))
+        {
+            var dist = f.RequireNearDistance.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            return GateResult.Deny($"[FAUST:err] code=notnear feature={featureKey} item={f.RequireNearPrefab.Value} dist={dist}");
+        }
+
         // Usage rate-limit (flat cooldown and/or window/period).
         if (!exempt && !Core.Usage.Check(user.PlatformId, f, out var useCode, out var useSecs))
             return GateResult.Deny($"[FAUST:err] code={useCode} feature={featureKey} secs={useSecs}");

@@ -20,6 +20,7 @@ these in order; the **first** failing axis denies with a specific `[FAUST:err] c
 | 4 | **Item cost** | `CostItemGuid` + `CostQuantity` | [done] | Verified up front and **consumed in Commit** after a real result (`InventoryUtilities` + `ServerGameManager.TryRemoveInventoryItem`). e.g. 100× of an item per use. |
 | 5 | **Rate / time lock** | `CooldownSeconds`, `WindowSeconds`, `PeriodSeconds`, `MaxUsesPerPeriod` | [done] | Flat cooldown + the window/period model below, persisted per (player, feature) in `feature_usage.json`. Deny codes `cooldown` / `window`. |
 | 6 | **Unlock criterion** | `Unlock = None \| BossKill:<guid> \| FinalBoss` (+ `AllBosses`/`AllQuests` reserved) | [done*] | A feature opens only after a player meets a progression gate. `BossKill`/`FinalBoss` (defeat Dracula) auto-detect via the death hook; `AllBosses`/`AllQuests` are reserved (admin-grant only until reliable detection). Per-player progress in `feature_unlocks.json`. Deny `locked` (with `need=`). Admin override: `.faust admin grant/revoke`. |
+| 7 | **Proximity requirement** | `RequireNearPrefab` + `RequireNearDistance` | [done] | The player must be within N metres of a configured object (by PrefabGUID) to use the feature — tie an ability to a place (an altar/station in a castle, a world landmark) instead of letting it be used anywhere. `0` = no requirement. Scans placed/world objects (those with a `TilePosition`). Deny `notnear` (with `item=` + `dist=`). |
 
 ### Rate / time-lock patterns (axis 5)
 
@@ -82,13 +83,14 @@ FaustAccessGate.TryAuthorize(ctx, feature):
   5. Unlock criterion met (or admin-exempt)?    no  -> code=locked   (+ what unlocks it)
   6. Access: AdminOnly & !admin?                yes -> code=noaccess
   7. PvP availability vs server/requester mode? bad -> code=pvp
-  8. Usage limit (cooldown / window / period)?  bad -> code=cooldown|window (+ secs)
-  9. Cost: inventory has Qty?                    no  -> code=cost     (item, qty)
+  8. Proximity: near the required object?        no  -> code=notnear  (item, dist)
+  9. Usage limit (cooldown / window / period)?  bad -> code=cooldown|window (+ secs)
+  10. Cost: inventory has Qty?                   no  -> code=cost     (item, qty)
   -> Allow (RESERVE cost; consume + stamp usage in Commit after a real result)
 ```
 
-Admins are exempt from 5–9 when the feature's `AdminsExempt=true` (default). New error codes to add
-to the contract: `blocked`, `schedule`, `locked`, `pvp`, `window`.
+Admins are exempt from 5–10 when the feature's `AdminsExempt=true` (default). Error codes the
+contract carries: `blocked`, `schedule`, `locked`, `pvp`, `notnear`, `window`.
 
 ## 5. Build phases
 
@@ -101,10 +103,12 @@ to the contract: `blocked`, `schedule`, `locked`, `pvp`, `window`.
    `DeathEventListenerSystem` hook (V Bloods only), `feature_unlocks.json`, `.faust admin
    grant/revoke/unlocks`, deny code `locked`. *`AllBosses`/`AllQuests` are reserved (parsed as
    grant-only) pending a reliable full-set / achievement read.
+7. **[done 0.7.0] Proximity requirement** — `RequireNearPrefab` + `RequireNearDistance`; scans
+   placed/world objects (`TilePosition`) near the player, deny code `notnear`.
 
-All six axes are now implemented (AllBosses/AllQuests detection is the only follow-up). A future
-ApiVersion bump can grow the handshake to advertise the availability/window/lock state per feature
-so BCH greys buttons without waiting for a deny.
+All seven axes are now implemented (AllBosses/AllQuests detection is the only follow-up). A future
+ApiVersion bump can grow the handshake to advertise the availability/window/lock/proximity state per
+feature so BCH greys buttons without waiting for a deny.
 
 ## 6. Persistence note
 

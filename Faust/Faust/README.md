@@ -13,12 +13,10 @@ an **item cost** — the Faustian toll — so on PvP/competitive servers, knowle
 
 ## ⚠ Heads-up before you install
 
-**Pre-1.0 — early development.** The investigation queries (castle/plot info, plot availability,
-player info, online positions) are live and confirmed working in game, each gated per feature with
-an optional item cost. 0.3.0 adds session tracking for real playtime/frequency stats and a server
-`stats` view (that persistence path is still being tested). By running it you're helping test it.
-**Back up your server save** before adding any mod. Commands, config keys, and behavior will change
-before 1.0.
+**Pre-1.0 — in active testing.** The full investigation feature set and the per-feature
+admin-control surface are implemented; this build is being validated in game. By running it you're
+helping test it. **Back up your server save** before adding any mod. Commands, config keys, and
+behavior may still change before 1.0.
 
 **Found a bug or have an idea?** The fastest path to a fix is the
 **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — the primary bug-report and
@@ -27,26 +25,41 @@ feedback channel. Written-up GitHub issues are welcome too.
 ---
 
 **Repo:** https://github.com/KDavidP1987/Faust-Lord-of-Investigation
-**Status:** pre-1.0 · **server-side only** · foundation in place, investigation features in development.
+**Status:** pre-1.0 · **server-side only** · investigation feature set complete, in live testing.
 
-## What it will do
+## What it does
 
 Faust holds the **authoritative, global view** of the server that a game client can't see (clients
 only receive what's near the local player). It gathers that view, **gates** it per feature,
 optionally **charges an item cost** for it, and ships it to the BloodCraftHub UI (or answers in
-chat). Planned investigation features (see the roadmap):
+chat). Best paired with **BloodCraftHub** for point-and-click panels, overlays, and graphs — but
+every query also works from chat.
 
-- **Castle/plot info** — owner, heart level, decay/raidable state, last-online.
-- **Plot availability** — free plots across the map, largest first.
-- **Player info** — last login, login frequency, play timeframes, total playtime.
-- **All-player map positions** *(admin-default, PvP-sensitive)*.
-- **Nearby object scan** — resource-node / container types around you.
-- **Enemy castle resource totals** *(admin-default, PvP raid intel)*.
-- **Server stats** — average concurrency, leaderboards (kills / playtime / resources), and
-  time-series for graphs.
+**Investigation queries:**
 
-Every feature is **independently exposed** by the admin and can be priced — Faust is never
-all-or-nothing, and intel is never free unless the admin makes it so.
+- **Castle & plot info** — a plot's owner, region, size, decay state & time, and the owner's
+  online / last-online.
+- **Plot availability** — open building plots across the whole map, largest first.
+- **Player info** — online state, last-online, and (tracked by Faust over time) total playtime,
+  session count, logins per week, and peak play hour.
+- **Online player positions** *(admin-default, PvP-sensitive)*.
+- **Enemy castle resource totals** — sum everything stashed in a castle *(admin-default; a natural
+  one to price or restrict to PvP)*.
+- **Server stats** — a playtime leaderboard and a server-population history, ready for graphs.
+
+**Every feature is independently controlled by the admin** — Faust is never all-or-nothing, and
+intel is never free unless the admin makes it so. Per feature you can set:
+
+- **Who** — off, admin-only, or all players.
+- **A price** — an item cost per use (the Faustian toll).
+- **A time-lock** — a flat cooldown, or a usage window per period (e.g. "a 10-minute window, once
+  per day").
+- **PvP/PvE** — usable only on the matching server mode.
+- **A progression unlock** — opens only after a player defeats a configured V Blood or Dracula.
+- **A place** — usable only within range of a configured object (an altar/station/landmark).
+
+Admins can also **block or schedule** any feature live (a countdown or a daily time window) with no
+restart.
 
 ## Installation
 

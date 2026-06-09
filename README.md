@@ -38,27 +38,32 @@ Faustian toll), and ships it to BloodCraftHub — exactly the integration patter
 sibling server-side mods **Uriel** and **Beelzebub** use. Faust is **not** a dependency of any of
 them; each is independent, and BloodCraftHub is an optional companion, never required.
 
-## Features (planned — see [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md))
+## Features (see [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md))
 
-| # | Feature | Default access | Notes |
-|---|---------|----------------|-------|
-| 2 | Castle/plot info (owner, heart level, decay/raidable, last-online) | Players | reuses KindredCommands `CastleTerritoryService` |
-| 4 | Plot availability (free plots by size) | Players | whole-map territory scan |
-| 3 | Player info (last login, frequency, playtime, peak hours) | AdminOnly (others) | needs Faust persistence (net-new) |
-| 1 | All-player map positions | AdminOnly | PvP-sensitive; rendering spike needed |
-| 5 | Nearby object scan | Players (Free) | client-capable; server only if priced |
-| 6 | Enemy castle resource totals | AdminOnly | PvP raid intel |
-| 8 | Server stats (concurrency, leaderboards, time-series) | Players | needs Faust persistence |
-| 7 | **Permission/cost gate** | — | **the foundation — shipped in 0.1.0** |
+| # | Feature | Default access | Status |
+|---|---------|----------------|--------|
+| 7 | **Permission/cost/control gate** (`FaustAccessGate`) | — | ✅ all 7 admin-control axes — see [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) |
+| 2 | Castle/plot info (owner, region, size, decay state & time, last-online) | Players | ✅ `castleinfo` |
+| 4 | Plot availability (open plots by size) | Players | ✅ `plots` |
+| 3 | Player info (online, last-online, playtime, frequency, peak hour) | AdminOnly (others) | ✅ `pinfo` (FaustStore persistence) |
+| 1 | Online player positions | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
+| 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
+| 8 | Server stats (playtime leaderboard, concurrency series) | Players | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
+| 5 | Nearby object scan | Players (Free) | client-side by design — server only if priced |
 | 9 | Visual graphs | — | rendered client-side in BloodCraftHub |
+
+Pending: `AllBosses`/`AllQuests` unlock auto-detection (other unlock criteria live); live in-game
+validation of the 0.3–0.7 paths.
 
 ## Architecture
 
 - **Server-only** BepInEx IL2CPP plugin (`net6.0`, `kdpen.Faust`); `Plugin.Load` early-returns on
   anything that isn't `VRisingServer`.
-- Every query enters through **one gatekeeper** (`FaustAccessGate`): feature-enabled → access
-  level (Off / AdminOnly / Players) → cooldown → item cost. Cost is reserved up front and consumed
-  only after a real result, so an empty query is never charged.
+- Every query enters through **one gatekeeper** (`FaustAccessGate`), evaluated in order: master-
+  enabled → runtime block → schedule → feature-enabled → unlock criterion → access (Off / AdminOnly
+  / Players) → PvP availability → proximity-to-object → usage (cooldown / window / period) → item
+  cost. Cost/usage are reserved up front and committed only after a real result, so an empty query
+  is never charged.
 - Deferred initialization (`Core.TryInitialize`) — no game-type statics before the server world +
   prefab data exist.
 - BCH-facing replies use the `[FAUST:*]` wire (one `ctx.Reply` per line). `.faust api version`

@@ -1,0 +1,43 @@
+# ---- Claude Code workspace settings (local hooks/permissions; CLAUDE.md IS tracked) ----
+.claude/
+
+# ---- Source/working & cover/reference art (working files & references, NOT for
+#      distribution; the shipped Thunderstore icon is Faust/Faust/icon.png, tracked) ----
+Faust Lord of Investigation*.png
+Faust1.jpg
+Faust2.jpg
+artwork/
+*.webp
+
+# ---- .NET / Visual Studio ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# ---- Build / NuGet ----
+*.binlog
+packages/
+project.lock.json
+artifacts/
+
+# ---- Thunderstore packaging output ----
+*.zip
+dist/
+build/
+
+# ---- OS noise ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.tmp
+
+# ---- transient/build junk ----
+~$*
+__pycache__/
+*.pyc

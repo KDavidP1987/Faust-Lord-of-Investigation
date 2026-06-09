@@ -1,5 +1,7 @@
 # Faust, Lord of Investigation
 
+![Faust, Lord of Investigation](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/docs/img/faust-cover.jpg)
+
 A **server-side** mod for V Rising dedicated servers that answers on-demand **investigation /
 information** queries — about players, castles, plots, objects, and server activity — delivered
 as `.faust` chat commands and as structured data for the **BloodCraftHub** companion UI to render.

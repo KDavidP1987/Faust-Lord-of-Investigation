@@ -1,5 +1,7 @@
 # Faust, Lord of Investigation
 
+![Faust, Lord of Investigation](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/docs/img/faust-cover.jpg)
+
 A **server-side** BepInEx IL2CPP mod for [V Rising](https://playvrising.com/) dedicated servers.
 Its single purpose is **investigation / information**: answering on-demand queries about players,
 castles, plots, objects, and server activity — delivered as `.faust` chat commands and, primarily,

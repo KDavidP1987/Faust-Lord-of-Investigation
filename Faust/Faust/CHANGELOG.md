@@ -3,6 +3,15 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.5.0 (2026-06-09)
+
+- **New: lock a feature behind beating a boss.** A feature can require defeating a specific V Blood
+  (`BossKill:<id>`) or **Dracula** (`FinalBoss`, i.e. finishing the game) before a player can use
+  it — set per feature with `Unlock` in the config. Admins can also hand-unlock for anyone:
+  `.faust admin grant <player> <feature>` / `revoke` / `unlocks <player>`.
+- Admins and a player querying themselves always bypass the lock.
+- Note: still an early release — the boss-kill detection hasn't been validated in a live session yet.
+
 ## 0.4.0 (2026-06-09)
 
 - **Admins now have fine-grained control over every Faust feature:**

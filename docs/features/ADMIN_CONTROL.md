@@ -19,7 +19,7 @@ these in order; the **first** failing axis denies with a specific `[FAUST:err] c
 | 3 | **PvP availability** | `Availability = Always \| PvEOnly \| PvPOnly` | [done] | Gated on the server game mode (`ServerGameSettingsSystem.Settings.GameModeType`). e.g. enemy-resource intel `PvPOnly`, position intel `PvEOnly`. Deny code `pvp`. |
 | 4 | **Item cost** | `CostItemGuid` + `CostQuantity` | [done] | Verified up front and **consumed in Commit** after a real result (`InventoryUtilities` + `ServerGameManager.TryRemoveInventoryItem`). e.g. 100× of an item per use. |
 | 5 | **Rate / time lock** | `CooldownSeconds`, `WindowSeconds`, `PeriodSeconds`, `MaxUsesPerPeriod` | [done] | Flat cooldown + the window/period model below, persisted per (player, feature) in `feature_usage.json`. Deny codes `cooldown` / `window`. |
-| 6 | **Unlock criterion** | `Unlock = None \| BossKill:<guid> \| FinalBoss \| AllBosses \| AllQuests` | [planned] | The feature only opens for a player who has met a progression gate. Per-player progress persists in `FaustStore`. (The remaining axis — needs kill/quest hooks.) |
+| 6 | **Unlock criterion** | `Unlock = None \| BossKill:<guid> \| FinalBoss` (+ `AllBosses`/`AllQuests` reserved) | [done*] | A feature opens only after a player meets a progression gate. `BossKill`/`FinalBoss` (defeat Dracula) auto-detect via the death hook; `AllBosses`/`AllQuests` are reserved (admin-grant only until reliable detection). Per-player progress in `feature_unlocks.json`. Deny `locked` (with `need=`). Admin override: `.faust admin grant/revoke`. |
 
 ### Rate / time-lock patterns (axis 5)
 
@@ -97,11 +97,14 @@ to the contract: `blocked`, `schedule`, `locked`, `pvp`, `window`.
 3. **[done 0.4.0] Usage policy** — `WindowSeconds`/`PeriodSeconds`/`MaxUsesPerPeriod`, persisted per (player, feature) in `feature_usage.json`.
 4. **[done 0.4.0] PvP availability** — `Availability` axis vs server game mode.
 5. **[done 0.4.0] Runtime control** — `.faust admin block/unblock/schedule/status`, persisted override layer (`feature_control.json`).
-6. **[planned] Unlock criteria** — kill/quest hooks + `feature_unlocks.json` + `.faust admin grant/revoke`.
+6. **[done* 0.5.0] Unlock criteria** — `BossKill:<guid>` / `FinalBoss` auto-detected via a
+   `DeathEventListenerSystem` hook (V Bloods only), `feature_unlocks.json`, `.faust admin
+   grant/revoke/unlocks`, deny code `locked`. *`AllBosses`/`AllQuests` are reserved (parsed as
+   grant-only) pending a reliable full-set / achievement read.
 
-Phase 6 is the remaining axis; it extends `FaustAccessGate` with a `locked` code and needs a
-death/quest hook. A future ApiVersion bump can also grow the handshake to advertise the
-availability/window/lock state per feature so BCH greys buttons without waiting for a deny.
+All six axes are now implemented (AllBosses/AllQuests detection is the only follow-up). A future
+ApiVersion bump can grow the handshake to advertise the availability/window/lock state per feature
+so BCH greys buttons without waiting for a deny.
 
 ## 6. Persistence note
 

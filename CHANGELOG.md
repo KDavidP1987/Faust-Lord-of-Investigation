@@ -7,6 +7,33 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.5.0] - 2026-06-09
+
+### Added — unlock criteria (the final admin-control axis)
+
+A feature can require a **progression gate** before a player may use it (`ADMIN_CONTROL.md` axis 6).
+**ApiVersion → 5**; new deny code `locked` (no query reply-shape change).
+
+- **Per-feature `Unlock` config** — `None` (default) | `FinalBoss` (after defeating Dracula —
+  game completion) | `BossKill:<vbloodGuid>` (after defeating that specific V Blood). `AllBosses`/
+  `AllQuests` are reserved (parsed as grant-only) until a reliable full-set / achievement read.
+- **`UnlockService`** (`feature_unlocks.json`) — tracks each player's V-Blood defeats and admin
+  grants; evaluates the criterion. `FinalBoss` resolves Dracula by prefab name (no hardcoded GUID).
+- **Death hook** (`Patches/DeathEventListenerSystemPatch.cs`) — postfix on
+  `DeathEventListenerSystem`: when a player kills a `VBloodUnit`, records the defeat for that
+  player. No-op unless some feature configures an `Unlock` (cheap gate); fully try/catch-guarded.
+- **Gate** denies `[FAUST:err] code=locked feature=… need=<bosskill|finalboss|grant>` when the
+  criterion isn't met. Admins (`AdminsExempt`) and self-queries bypass it.
+- **Admin overrides** — `.faust admin grant <player> <feature>` / `revoke <player> <feature>` /
+  `unlocks <player>` (show a player's V-blood defeats + granted features).
+- Contract + `ADMIN_CONTROL.md` updated — all six control axes now implemented (AllBosses/AllQuests
+  auto-detection is the only follow-up).
+
+### Notes
+
+- Compiles clean (0 warnings). The death hook + unlock evaluation are **not yet validated on a live
+  server** — needs an in-game pass (configure an `Unlock`, defeat the boss, confirm the feature opens).
+
 ## [0.4.0] - 2026-06-09
 
 ### Added — admin control surface: cost consume, time-locks, PvP gating, runtime block/schedule

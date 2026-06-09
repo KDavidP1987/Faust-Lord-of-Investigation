@@ -57,6 +57,10 @@ internal static class FaustAccessGate
         bool isAdmin = user.IsAdmin;
         bool exempt = isAdmin && f.AdminsExempt.Value;
 
+        // Unlock criterion (progression gate). Skipped for admins (exempt) and self-queries.
+        if (!exempt && !bypassAccess && !Core.Unlock.IsUnlocked(user.PlatformId, f, out var need))
+            return GateResult.Deny($"[FAUST:err] code=locked feature={featureKey} need={need}");
+
         // Access level (a self-query may bypass this; see ApiCommands.pinfo).
         if (!bypassAccess && !exempt && f.Access == AccessLevel.AdminOnly && !isAdmin)
             return GateResult.Deny($"[FAUST:err] code=noaccess feature={featureKey}");

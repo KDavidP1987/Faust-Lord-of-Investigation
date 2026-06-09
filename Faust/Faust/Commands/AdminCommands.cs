@@ -85,6 +85,40 @@ internal static class AdminCommands
         ctx.Reply(sb.ToString());
     }
 
+    [Command("grant", description: "Unlock a feature for a player (overrides its Unlock criterion). Usage: .faust admin grant <player> <feature>", adminOnly: true)]
+    public static void Grant(ChatCommandContext ctx, string player, string feature)
+    {
+        feature = feature.ToLowerInvariant();
+        if (!Settings.Features.ContainsKey(feature))
+        { ctx.Reply($"Unknown feature '{feature}'. Use one of: {string.Join(", ", Settings.Features.Keys)}."); return; }
+        if (!EntityExtensions.TryResolvePlayer(player, out var steam, out var name, out _, out var err))
+        { ctx.Reply(err); return; }
+        ctx.Reply(Core.Unlock.Grant(steam, feature)
+            ? $"Granted '{feature}' to {name}."
+            : $"{name} already had '{feature}' granted.");
+    }
+
+    [Command("revoke", description: "Remove a feature grant from a player. Usage: .faust admin revoke <player> <feature>", adminOnly: true)]
+    public static void Revoke(ChatCommandContext ctx, string player, string feature)
+    {
+        feature = feature.ToLowerInvariant();
+        if (!Settings.Features.ContainsKey(feature))
+        { ctx.Reply($"Unknown feature '{feature}'. Use one of: {string.Join(", ", Settings.Features.Keys)}."); return; }
+        if (!EntityExtensions.TryResolvePlayer(player, out var steam, out var name, out _, out var err))
+        { ctx.Reply(err); return; }
+        ctx.Reply(Core.Unlock.Revoke(steam, feature)
+            ? $"Revoked '{feature}' grant from {name}."
+            : $"{name} had no '{feature}' grant.");
+    }
+
+    [Command("unlocks", description: "Show a player's unlock progress (V-blood defeats + granted features). Usage: .faust admin unlocks <player>", adminOnly: true)]
+    public static void Unlocks(ChatCommandContext ctx, string player)
+    {
+        if (!EntityExtensions.TryResolvePlayer(player, out var steam, out var name, out _, out var err))
+        { ctx.Reply(err); return; }
+        ctx.Reply($"{name} — {Core.Unlock.Describe(steam)}");
+    }
+
     static bool TryParseWindow(string window, out int startMin, out int endMin)
     {
         startMin = endMin = -1;

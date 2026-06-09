@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
 
@@ -14,6 +15,10 @@ internal enum DeliveryMode { ServerMediated, Free }
 
 /// <summary>Whether a feature is usable given the server's game mode (ADMIN_CONTROL §1 axis 3).</summary>
 internal enum PvpAvailability { Always, PvEOnly, PvPOnly }
+
+/// <summary>Progression gate a player must satisfy before a feature opens (ADMIN_CONTROL §1 axis 6).
+/// GrantOnly = a recognized-but-not-auto-detected criterion (AllBosses/AllQuests) — admin grant only for now.</summary>
+internal enum UnlockKind { None, BossKill, FinalBoss, GrantOnly }
 
 /// <summary>
 /// The per-feature gateable unit: its resolved access, delivery, item cost, cooldown,
@@ -34,8 +39,28 @@ internal sealed class FeatureConfig
     public ConfigEntry<int> WindowSeconds { get; init; }
     public ConfigEntry<int> PeriodSeconds { get; init; }
     public ConfigEntry<int> MaxUsesPerPeriod { get; init; }
+    public ConfigEntry<string> UnlockRaw { get; init; }
 
     public FeatureConfig(string key) { Key = key; }
+
+    /// <summary>Parsed unlock criterion: None | FinalBoss | BossKill:&lt;guid&gt; | GrantOnly (anything else).</summary>
+    public (UnlockKind Kind, int Guid) Unlock
+    {
+        get
+        {
+            var v = UnlockRaw.Value;
+            if (string.IsNullOrWhiteSpace(v) || v.Equals("None", StringComparison.OrdinalIgnoreCase))
+                return (UnlockKind.None, 0);
+            if (v.Equals("FinalBoss", StringComparison.OrdinalIgnoreCase))
+                return (UnlockKind.FinalBoss, 0);
+            if (v.StartsWith("BossKill:", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(v.Substring("BossKill:".Length), out var g))
+                return (UnlockKind.BossKill, g);
+            return (UnlockKind.GrantOnly, 0); // AllBosses / AllQuests / unrecognized -> admin-grant only
+        }
+    }
+
+    public bool HasUnlock => Unlock.Kind != UnlockKind.None;
 
     public AccessLevel Access => AccessRaw.Value switch
     {
@@ -145,6 +170,11 @@ internal static class Settings
             MaxUsesPerPeriod = config.Bind(section, "MaxUsesPerPeriod", 0,
                 "How many uses (or window-opens, if WindowSeconds>0) are allowed per period. 0 = unlimited within " +
                 "the period. Example: 1 with PeriodSeconds=86400 = once per day."),
+            UnlockRaw = config.Bind(section, "Unlock", "None",
+                "Progression gate before a player may use this feature. 'None' = always available. 'FinalBoss' = " +
+                "after defeating Dracula (game completion). 'BossKill:<vbloodGuid>' = after defeating that specific " +
+                "V Blood. Admins are exempt (AdminsExempt); '.faust admin grant <player> " + key +
+                "' overrides for any player. (AllBosses/AllQuests are reserved — admin-grant only for now.)"),
         };
         _features[key] = fc;
     }

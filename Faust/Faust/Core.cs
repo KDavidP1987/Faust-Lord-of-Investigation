@@ -32,6 +32,7 @@ internal static class Core
     public static FaustStore Store { get; private set; }
     public static UsageService Usage { get; private set; }
     public static FeatureControlService Control { get; private set; }
+    public static UnlockService Unlock { get; private set; }
 
     public static ManualLogSource Log => Plugin.PluginLog;
     public static bool IsReady { get; private set; }
@@ -45,6 +46,8 @@ internal static class Core
         Usage.Load();
         Control = new FeatureControlService();
         Control.Load();
+        Unlock = new UnlockService();
+        Unlock.Load();
     }
 
     static bool _initInProgress;

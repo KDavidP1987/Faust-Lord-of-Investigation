@@ -122,7 +122,8 @@ effect on server restart.
 | Faust.\<feature\> | CooldownSeconds | `0` | Flat per-player lockout between runs (e.g. pay, then locked 30 min) |
 | Faust.\<feature\> | WindowSeconds / PeriodSeconds / MaxUsesPerPeriod | `0` | A usage window per recurring period — e.g. `600` / `86400` / `1` = a 10-min window, once per day |
 | Faust.\<feature\> | Availability | `Always` | `Always` / `PvEOnly` / `PvPOnly` — gate on the server's game mode |
-| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / cost / cooldown / window |
+| Faust.\<feature\> | Unlock | `None` | `None` / `FinalBoss` (defeat Dracula) / `BossKill:<vbloodGuid>` — progression gate before use |
+| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
 `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
@@ -137,6 +138,11 @@ Admins can override features at runtime — these persist across restarts:
 | `.faust admin unblock <feature\|all>` | Clear a block / countdown |
 | `.faust admin schedule <feature\|all> <HH:MM-HH:MM\|clear>` | Only allow use within a daily time window (server local time) |
 | `.faust admin status [feature]` | Show each feature's effective block/schedule state |
+| `.faust admin grant\|revoke <player> <feature>` | Hand-unlock / re-lock a feature for a player (overrides its `Unlock` criterion) |
+| `.faust admin unlocks <player>` | Show a player's V-blood defeats + granted features |
+
+A feature can also require a **progression unlock** before players may use it — set
+`Unlock = FinalBoss` (defeat Dracula) or `Unlock = BossKill:<vbloodGuid>` per feature in the config.
 
 ## Feedback & community
 

@@ -2,6 +2,7 @@ using BepInEx.Logging;
 using ProjectM;
 using ProjectM.Scripting;
 using Unity.Entities;
+using Faust.Services;
 
 namespace Faust;
 
@@ -18,7 +19,13 @@ internal static class Core
     public static EntityManager EntityManager { get; private set; }
     public static PrefabCollectionSystem PrefabCollectionSystem { get; private set; }
     public static ServerScriptMapper ServerScriptMapper { get; private set; }
+    public static ServerGameSettingsSystem ServerGameSettingsSystem { get; private set; }
     public static ServerGameManager ServerGameManager => ServerScriptMapper.GetServerGameManager();
+    public static double ServerTime => ServerGameManager.ServerTime;
+
+    // ---- Feature services (data collection); built in TryInitialize after game data is loaded ----
+    public static CastleService Castle { get; private set; }
+    public static PlayerInfoService PlayerInfo { get; private set; }
 
     public static ManualLogSource Log => Plugin.PluginLog;
     public static bool IsReady { get; private set; }
@@ -53,11 +60,14 @@ internal static class Core
             EntityManager = server.EntityManager;
             PrefabCollectionSystem = prefabSystem;
             ServerScriptMapper = server.GetExistingSystemManaged<ServerScriptMapper>();
+            ServerGameSettingsSystem = server.GetExistingSystemManaged<ServerGameSettingsSystem>();
 
             // Feature services initialize here (after game data is loaded), in dependency order.
-            // Foundation has no data-gathering services yet — the access gate is stateless and
-            // needs no init. FaustStore (session/time-series persistence for #3/#8) lands with
-            // the persistence subsystem; see docs/FAUST_DESIGN.md §6.
+            // These are stateless readers over live ECS state (the global view BCH can't see).
+            // FaustStore (session/time-series persistence for #3 frequency/playtime + #8 stats)
+            // lands with the persistence subsystem; see docs/FAUST_DESIGN.md §6.
+            Castle = new CastleService();
+            PlayerInfo = new PlayerInfoService();
 
             IsReady = true;
             Log.LogInfo($"Faust initialized via {trigger} (attempt #{_initAttempts}). Prefab map has {prefabSystem.SpawnableNameToPrefabGuidDictionary.Count} entries.");

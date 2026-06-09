@@ -1,0 +1,226 @@
+using System.Collections.Generic;
+using ProjectM;
+using ProjectM.CastleBuilding;
+using ProjectM.Network;
+using ProjectM.Terrain;
+using Unity.Entities;
+using Unity.Mathematics;
+using Unity.Transforms;
+using UnityEngine;
+
+namespace Faust.Services;
+
+/// <summary>
+/// The authoritative, global castle/territory view — feature #2 (castle/plot info) and #4 (plot
+/// availability). Repackages the proven KindredCommands territory/heart/owner model
+/// (CastleTerritoryService + CastleCommands fuel math) into plain data structs the API layer turns
+/// into [FAUST:*] lines. All reads are on-demand; nothing is cached except the static
+/// block-coordinate -> territory-index map (the map's territory layout never changes at runtime).
+/// </summary>
+internal sealed class CastleService
+{
+    const float BLOCK_SIZE = 10f;
+
+    public enum PlotState { Unclaimed, Sealed, Fueled, Decaying }
+
+    public readonly struct TerritoryInfo
+    {
+        public int TerritoryIndex { get; init; }
+        public bool HasHeart { get; init; }
+        public ulong OwnerSteamId { get; init; }
+        public string OwnerName { get; init; }
+        public bool OwnerOnline { get; init; }
+        public long OwnerLastConnected { get; init; } // DateTime binary; 0 if unknown/unclaimed
+        public string Region { get; init; }
+        public int SizeBlocks { get; init; }
+        public PlotState State { get; init; }
+        public long DecaySeconds { get; init; }       // seconds of fuel left; -1 = never decays
+    }
+
+    // Lazily-built block-coord -> territory-index map (CastleTerritoryService pattern).
+    Dictionary<int2, int> _blockToTerritory;
+
+    void EnsureBlockMap()
+    {
+        if (_blockToTerritory != null) return;
+        _blockToTerritory = new Dictionary<int2, int>();
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+            {
+                var idx = territories[i].Read<CastleTerritory>().CastleTerritoryIndex;
+                var blocks = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territories[i]);
+                for (int b = 0; b < blocks.Length; b++)
+                    _blockToTerritory[blocks[b].BlockCoordinate] = idx;
+            }
+        }
+        finally { territories.Dispose(); }
+    }
+
+    static float3 ConvertPosToGrid(float3 pos) =>
+        new(Mathf.FloorToInt(pos.x * 2) + 6400, pos.y, Mathf.FloorToInt(pos.z * 2) + 6400);
+
+    static int2 ConvertPosToBlockCoord(float3 pos)
+    {
+        var grid = ConvertPosToGrid(pos);
+        return new int2((int)math.floor(grid.x / BLOCK_SIZE), (int)math.floor(grid.z / BLOCK_SIZE));
+    }
+
+    /// <summary>Territory index containing a world position, or -1 if outside any territory.</summary>
+    public int GetTerritoryIndexAt(float3 pos)
+    {
+        EnsureBlockMap();
+        return _blockToTerritory.TryGetValue(ConvertPosToBlockCoord(pos), out var idx) ? idx : -1;
+    }
+
+    /// <summary>Territory index of the castle heart nearest a position, or -1 if none.</summary>
+    public int GetNearestHeartTerritory(float3 pos)
+    {
+        var hearts = Query.GetEntitiesByComponentType<CastleHeart>(includeDisabled: true);
+        int best = -1;
+        float bestDistSq = float.MaxValue;
+        try
+        {
+            for (int i = 0; i < hearts.Length; i++)
+            {
+                if (!hearts[i].Has<LocalToWorld>()) continue;
+                var hp = hearts[i].Read<LocalToWorld>().Position;
+                float d = math.distancesq(pos, hp);
+                if (d >= bestDistSq) continue;
+                var terr = hearts[i].Read<CastleHeart>().CastleTerritoryEntity;
+                if (!terr.Exists()) continue;
+                bestDistSq = d;
+                best = terr.Read<CastleTerritory>().CastleTerritoryIndex;
+            }
+        }
+        finally { hearts.Dispose(); }
+        return best;
+    }
+
+    /// <summary>Full info for a single territory index. HasHeart=false means it isn't resolvable.</summary>
+    public bool TryGetTerritory(int territoryIndex, out TerritoryInfo info)
+    {
+        info = default;
+        if (territoryIndex < 0) return false;
+
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+            {
+                var ct = territories[i].Read<CastleTerritory>();
+                if (ct.CastleTerritoryIndex != territoryIndex) continue;
+                info = BuildInfo(territories[i], ct);
+                return true;
+            }
+        }
+        finally { territories.Dispose(); }
+        return false;
+    }
+
+    /// <summary>All open (heart-less) plots, largest first — feature #4.</summary>
+    public List<TerritoryInfo> GetFreePlots()
+    {
+        var result = new List<TerritoryInfo>();
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+            {
+                var ct = territories[i].Read<CastleTerritory>();
+                if (ct.CastleHeart.Exists()) continue; // claimed -> not a free plot
+                result.Add(BuildInfo(territories[i], ct));
+            }
+        }
+        finally { territories.Dispose(); }
+        result.Sort((a, b) => b.SizeBlocks.CompareTo(a.SizeBlocks));
+        return result;
+    }
+
+    TerritoryInfo BuildInfo(Entity territoryEntity, CastleTerritory ct)
+    {
+        int size = 0;
+        if (Core.EntityManager.HasComponent<CastleTerritoryBlocks>(territoryEntity))
+            size = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territoryEntity).Length;
+
+        string region = territoryEntity.TryGetComponent<TerritoryWorldRegion>(out var twr)
+            ? RegionName(twr.Region) : "Unknown";
+
+        var heart = ct.CastleHeart;
+        if (!heart.Exists())
+        {
+            return new TerritoryInfo
+            {
+                TerritoryIndex = ct.CastleTerritoryIndex,
+                HasHeart = false,
+                Region = region,
+                SizeBlocks = size,
+                State = PlotState.Unclaimed,
+                DecaySeconds = 0,
+            };
+        }
+
+        var ch = heart.Read<CastleHeart>();
+        ulong steam = 0; string ownerName = "Unknown"; bool online = false; long lastConnected = 0;
+        if (heart.TryGetComponent<UserOwner>(out var uo))
+        {
+            var ownerUser = uo.Owner.GetEntityOnServer();
+            if (ownerUser.TryGetComponent<User>(out var u))
+            {
+                steam = u.PlatformId;
+                ownerName = u.CharacterName.ToString();
+                online = u.IsConnected;
+                lastConnected = u.TimeLastConnected;
+            }
+        }
+
+        PlotState state;
+        long decay;
+        if (double.IsPositiveInfinity(ch.FuelEndTime))
+        {
+            state = PlotState.Sealed; decay = -1;
+        }
+        else
+        {
+            double remaining = FuelTimeRemaining(ch);
+            bool fueled = (ch.FuelEndTime - Core.ServerTime) > 0 || ch.FuelQuantity > 0;
+            state = fueled ? PlotState.Fueled : PlotState.Decaying;
+            decay = (long)System.Math.Max(0, remaining);
+        }
+
+        return new TerritoryInfo
+        {
+            TerritoryIndex = ct.CastleTerritoryIndex,
+            HasHeart = true,
+            OwnerSteamId = steam,
+            OwnerName = ownerName,
+            OwnerOnline = online,
+            OwnerLastConnected = lastConnected,
+            Region = region,
+            SizeBlocks = size,
+            State = state,
+            DecaySeconds = decay,
+        };
+    }
+
+    static double FuelTimeRemaining(CastleHeart ch)
+    {
+        float drain = Mathf.Min(Core.ServerGameSettingsSystem.Settings.CastleBloodEssenceDrainModifier, 3f);
+        if (drain <= 0f) drain = 1f;
+        double secondsPerFuel = (8 * 60) / drain;
+        return (ch.FuelEndTime - Core.ServerTime) + secondsPerFuel * ch.FuelQuantity;
+    }
+
+    /// <summary>"SilverlightHills" -> "Silverlight Hills" (KindredCommands' RegionName).</summary>
+    public static string RegionName(WorldRegionType region) =>
+        System.Text.RegularExpressions.Regex.Replace(region.ToString().Replace("_", ""), "(?<!^)([A-Z])", " $1");
+
+    public static string StateWire(PlotState s) => s switch
+    {
+        PlotState.Sealed => "sealed",
+        PlotState.Fueled => "fueled",
+        PlotState.Decaying => "decaying",
+        _ => "unclaimed",
+    };
+}

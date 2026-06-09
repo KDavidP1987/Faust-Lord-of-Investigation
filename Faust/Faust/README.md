@@ -13,11 +13,11 @@ an **item cost** — the Faustian toll — so on PvP/competitive servers, knowle
 
 ## ⚠ Heads-up before you install
 
-**Pre-1.0 — early development (foundation stage).** This release installs and runs, but it does
-**not yet answer investigation queries** — it ships the permission/cost framework and the
-BloodCraftHub handshake that the actual features will hang off. By running it you're helping test
-the groundwork. **Back up your server save** before adding any mod. Commands, config keys, and
-behavior will change before 1.0.
+**Pre-1.0 — early development.** The first investigation queries are live (castle/plot info, plot
+availability, player info, online positions), gated per feature with an optional item cost — but
+this is an **early data release for testing**, not yet validated on a live server. By running it
+you're helping test it. **Back up your server save** before adding any mod. Commands, config keys,
+and behavior will change before 1.0.
 
 **Found a bug or have an idea?** The fastest path to a fix is the
 **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — the primary bug-report and
@@ -85,20 +85,25 @@ feature also works through `.faust` chat commands. Faust is a sibling to the aut
 server-side **Uriel, Lord of Hosts** and **Beelzebub, Lord of Gluttony**; each is independent
 and integrates with BloodCraftHub the same way.
 
-## Commands (foundation stage)
+## Commands
 
 All commands are chat commands prefixed with `.faust`. Type `.faust` for an overview or
-`.faust help [players|castles|server|admin]` for a topic menu.
+`.faust help [players|castles|server|admin]` for a topic menu. Most queries are intended to be
+driven by the BloodCraftHub UI, but each works from chat too.
 
 | Command | What it does |
 |---|---|
-| `.faust` | Overview of the mod |
-| `.faust help [topic]` | Topic-by-topic help menu |
+| `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, size, decay state & time, owner online/last-online |
+| `.faust api plots [page]` | Open building plots across the map, largest first |
+| `.faust api pinfo <name\|steamId>` | A player's online state & last-online (yourself always; others admin-gated) |
+| `.faust api positions [page]` | Locations of online players *(admin-default)* |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |
+| `.faust` · `.faust help [topic]` | Overview / topic-by-topic help |
 
-Investigation query commands (`castleinfo`, `pinfo`, `plots`, `positions`, `stats`, …) arrive as
-each feature is built.
+Per-query playtime & frequency stats (`pinfo`), and server leaderboards/`stats`, arrive once Faust
+begins tracking sessions over time. Each query obeys its per-feature access, item cost, and
+cooldown (config below); an empty or not-found lookup is never charged.
 
 ## Configuration
 

@@ -7,6 +7,48 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.2.0] - 2026-06-09
+
+### Added — first investigation queries: castle/plot info, plot availability, player info, positions
+
+The "reuse wins" tier from the design build order — the global server view repackaged into the
+`[FAUST:*]` wire so BloodCraftHub has real data to render and the features can be tested in game.
+**ApiVersion → 2.**
+
+- **Data layer** (ported from KindredCommands' proven territory/heart/owner model):
+  - `EntityExtensions` (IL2CPP-safe `Exists`/`Has`/`Read`/`TryGetComponent`, `TryResolvePlayer`
+    by name-fragment-or-steamId, prefab-name lookup) and `Query` (lazy `EntityQueryBuilder`
+    helpers; global scans pass `IncludeDisabled` so distant/streamed-out entities are visible).
+  - `Wire` — centralizes the two wire invariants: one `ctx.Reply` per `[FAUST:*]` line, and
+    wire-safe token values (`Safe()`: spaces → `_`, strips `= ; :`). `SendPage` does 1-based
+    paging (20/page) and the `[FAUST:end] cmd=… page=cur/total count=n` trailer.
+  - `CastleService` — block-coordinate→territory map (for `here`), per-territory owner/region/
+    size/state and fuel-decay math (`FuelEndTime`/`FuelQuantity` + `CastleBloodEssenceDrainModifier`
+    + `ServerTime`), and the free-plot scan.
+  - `PlayerInfoService` — last-online/online from `User` entities; online-player positions.
+- **`.faust api castleinfo <here|nearest|tindex>`** (#2) → `[FAUST:castle]` with owner, steam,
+  region, size (blocks), `state=unclaimed|sealed|fueled|decaying`, `decay` seconds (`-1` =
+  sealed), online, last-online (Unix UTC).
+- **`.faust api plots [page]`** (#4) → `[FAUST:plot]` rows (open territories, largest first) +
+  `[FAUST:end]`.
+- **`.faust api pinfo <name|steamId>`** (#3) → `[FAUST:player]`; `online`/`lastonline` live now;
+  `firstseen`/`sessions`/`playmins`/`freq`/`peakhour` emitted as `-1` (pending the FaustStore
+  time-series subsystem). **Self is always allowed**; querying others is gated (AdminOnly default).
+- **`.faust api positions [page]`** (#1, admin-default) → `[FAUST:pos]` rows for online players
+  (x/z + territory index). Map rendering is a BCH-side decision (design §8); the data is ready.
+- All four route through `FaustAccessGate`, committing cooldown/cost only after a real result
+  (`notfound`/`badtarget`/empty pages are never charged). In-game `.faust help` + `.faust`
+  overview updated to list the live queries.
+- BCH contract (`docs/BCH_INTEGRATION_CONTRACT.md`) updated: these shapes are now **implemented**
+  (not proposed), with the `state`/`decay` vocabulary, the pending-field sentinels, and the
+  `count=` trailer documented.
+
+### Notes
+
+- Reads use the typed `GetComponentData<T>` path the sibling mods ship on the same
+  VampireReferenceAssemblies set. Compiles clean (0 warnings); **runtime not yet validated on a
+  live server** — this release is for first in-game testing.
+
 ## [0.1.0] - 2026-06-09
 
 ### Added — project scaffold + the Foundation / permission-cost layer (design #7)

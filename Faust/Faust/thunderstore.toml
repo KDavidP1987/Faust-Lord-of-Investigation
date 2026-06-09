@@ -4,7 +4,7 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "kdpen"
 name = "Faust"
-versionNumber = "0.1.0"
+versionNumber = "0.2.0"
 description = "Server-side investigation layer: on-demand intel about players, castles, plots, objects & server activity, gated per-feature and optionally priced an item cost. Best with BloodCraftHub. Server-side only."
 websiteUrl = "https://github.com/KDavidP1987/Faust-Lord-of-Investigation"
 containsNsfwContent = false

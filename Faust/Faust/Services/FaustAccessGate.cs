@@ -32,8 +32,12 @@ internal static class FaustAccessGate
             new() { Allowed = true, Feature = f, CostOwed = costOwed };
     }
 
-    /// <summary>Resolve → enabled → access → cooldown → cost-verify. Stamps/consumes nothing.</summary>
-    public static GateResult TryAuthorize(ChatCommandContext ctx, string featureKey)
+    /// <summary>
+    /// Resolve → enabled → access → cooldown → cost-verify. Stamps/consumes nothing.
+    /// <paramref name="bypassAccess"/> skips ONLY the access-level check (e.g. a player querying
+    /// their OWN player info, which is always allowed) — enabled/cooldown/cost still apply.
+    /// </summary>
+    public static GateResult TryAuthorize(ChatCommandContext ctx, string featureKey, bool bypassAccess = false)
     {
         if (!Core.IsReady)
             return GateResult.Deny("[FAUST:err] code=notready");
@@ -49,14 +53,11 @@ internal static class FaustAccessGate
         bool isAdmin = user.IsAdmin;
         bool exempt = isAdmin && f.AdminsExempt.Value;
 
-        // ---- Access ----
-        switch (f.Access)
-        {
-            case AccessLevel.Off:
-                return GateResult.Deny($"[FAUST:err] code=disabled feature={featureKey}");
-            case AccessLevel.AdminOnly when !exempt && !isAdmin:
-                return GateResult.Deny($"[FAUST:err] code=noaccess feature={featureKey}");
-        }
+        // ---- Access (feature Off is a hard stop even for a self/bypass query) ----
+        if (f.Access == AccessLevel.Off)
+            return GateResult.Deny($"[FAUST:err] code=disabled feature={featureKey}");
+        if (!bypassAccess && f.Access == AccessLevel.AdminOnly && !exempt && !isAdmin)
+            return GateResult.Deny($"[FAUST:err] code=noaccess feature={featureKey}");
 
         // ---- Cooldown ----
         if (!exempt && f.CooldownSeconds.Value > 0)

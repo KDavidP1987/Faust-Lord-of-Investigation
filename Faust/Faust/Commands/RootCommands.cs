@@ -17,6 +17,6 @@ internal static class RootCommands
             $"server (v{MyPluginInfo.PLUGIN_VERSION}). Knowledge has a price: admins gate each query and " +
             "may charge an item cost.\n" +
             "Best used through the BloodCraftHub UI; also works as chat commands.\n" +
-            "Type '.faust help' for the command menu. Foundation stage: '.faust api version' + '.faust api ping'.");
+            "Live: '.faust api castleinfo|plots|pinfo|positions'. Type '.faust help' for the menu.");
     }
 }

@@ -65,43 +65,60 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> These shapes are **proposed** — finalize each as you build the feature, and
-> update this doc + bump `api`. Names/fields are the starting contract.
+> **Status (ApiVersion 2):** the four shapes below are **IMPLEMENTED** and live as of
+> Faust 0.2.0 — these are the contract, not a proposal. Fields flagged *(pending)* are emitted
+> with a sentinel until the persistence subsystem lands; the token is already on the wire so
+> BCH can build the full panel now. `objectscan` (#5), `castleresources` (#6), and `stats` (#8)
+> are still proposed (later sections / design build order).
 
-### `castleinfo` (#2)
-`.faust api castleinfo <token>` — `<token>` = `here` (aimed/standing plot) | a
-territory index | `nearest`.
+### `castleinfo` (#2) — IMPLEMENTED
+`.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
+`nearest` (territory of the nearest castle heart) | a territory index `<int>`.
 ```
-[FAUST:castle] tindex=<int> owner=<name> steam=<id> heart=<lvl> \
-    state=<sealed|decaying|raidable|unclaimed> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc>
+[FAUST:castle] tindex=<int> owner=<wire_name> steam=<id> region=<wire_name> size=<blocks> \
+    state=<unclaimed|sealed|fueled|decaying> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc>
 ```
+- `state`: `unclaimed` (no heart), `sealed` (frozen — never decays), `fueled` (has blood
+  essence / time remaining), `decaying` (out of fuel, ticking down).
+- `decay`: seconds of fuel remaining; **`-1` when `state=sealed`** (infinite). For an unclaimed
+  plot, `owner=_ steam=0 online=0 lastonline=0`.
+- `size`: territory block count (10×10 build blocks) — a proxy for plot size.
+- `lastonline`: Unix UTC seconds (from `User.TimeLastConnected`); `0` = unknown.
+- Errors: `badtarget` (token isn't here/nearest/int), `notfound` (no such territory).
 
-### `plotavailability` (#4)
-`.faust api plots <page>` — free territories, largest first.
+### `plotavailability` (#4) — IMPLEMENTED
+`.faust api plots [page]` — open (heart-less) territories, largest first.
 ```
-[FAUST:plot] tindex=<int> size=<blocks> region=<name> center=<x>,<z>
+[FAUST:plot] tindex=<int> size=<blocks> region=<wire_name>
 …rows…
-[FAUST:end] cmd=plots page=<cur>/<total>
+[FAUST:end] cmd=plots page=<cur>/<total> count=<n>
 ```
 
-### `playerinfo` (#3)
-`.faust api pinfo <steamIdOrName>` — self always allowed; others gated.
+### `playerinfo` (#3) — IMPLEMENTED (time-series pending)
+`.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the
+`playerinfo` feature access (AdminOnly by default). Name lookups must be unique (exact name wins).
 ```
-[FAUST:player] steam=<id> name=<name> online=<0|1> lastonline=<unixUtc> \
+[FAUST:player] steam=<id> name=<wire_name> online=<0|1> lastonline=<unixUtc> \
     firstseen=<unixUtc> sessions=<n> playmins=<total> freq=<perWeek> peakhour=<0-23>
 ```
-Hover-to-identify is a **BCH client-side** mechanic (find the player entity under
-the cursor, read SteamID/name off replicated state) → then BCH calls this command.
+- `online`, `lastonline` are **live now**. `firstseen`, `sessions`, `playmins`, `freq`,
+  `peakhour` are **`-1` (not yet tracked)** until the FaustStore session/time-series persistence
+  lands (design §6) — the game only stores the *last* connect time. The fields are on the wire so
+  BCH can render the panel against the final shape today.
+- Hover-to-identify is a **BCH client-side** mechanic (find the player entity under the cursor,
+  read SteamID/name off replicated state) → then BCH calls this command.
 
-### `playerpositions` (#1)
-`.faust api positions` — admin-default. One row per online player.
+### `playerpositions` (#1) — IMPLEMENTED (data); rendering is BCH-side
+`.faust api positions [page]` — admin-default. One row per **online** player.
 ```
-[FAUST:pos] steam=<id> name=<name> x=<f> z=<f> region=<name>
+[FAUST:pos] steam=<id> name=<wire_name> x=<f> z=<f> tindex=<int>
 …rows…
-[FAUST:end] cmd=positions page=1/1
+[FAUST:end] cmd=positions page=<cur>/<total> count=<n>
 ```
-**Rendering is the open problem** (see design §8). BCH may draw these on its own
-map overlay, or Faust may drive MapIcon reveal server-side — decide via spike.
+- `x`/`z` are world coordinates (one decimal). `tindex` is the territory the player is standing
+  in, or `-1` in the open world.
+- **Rendering is the open problem** (design §8): BCH draws these on its own map overlay, or Faust
+  drives server-side MapIcon reveal — decide via spike. The data is ready either way.
 
 ### `objectscan` (#5)
 Default **Free / client-side** (BCH reads nearby entities itself). Only implement
@@ -135,7 +152,9 @@ BCH renders leaderboards as tables and concurrency/time-series as **graphs** (#9
 
 - **Paging is 1-based.** BCH requests page 1, reads `page=cur/total` off
   `[FAUST:end]`, and auto-requests `cur+1` until `cur == total`. `[FAUST:end]`
-  MUST carry `cmd=` (+ `kind=` where relevant) and `page=cur/total`.
+  carries `cmd=` (+ `kind=` where relevant), `page=cur/total`, and `count=<total rows>`
+  (the full unpaged row count, so BCH can show a total without walking every page).
+  Page size is 20 rows. An empty result still sends `[FAUST:end] … page=1/1 count=0`.
 - **Numbers are bare** — `pct=54.2` not `54.2%`; `decay=3600` seconds, not
   `"1h"`. BCH parses formatting client-side.
 - **Wire-safe labels** — no spaces in token values; use `_`→space on display

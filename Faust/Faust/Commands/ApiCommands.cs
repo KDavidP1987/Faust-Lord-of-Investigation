@@ -1,6 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using Faust.Config;
 using Faust.Services;
+using ProjectM;
+using Unity.Transforms;
 using VampireCommandFramework;
 
 namespace Faust.Commands;
@@ -10,24 +15,27 @@ namespace Faust.Commands;
 /// (docs/BCH_INTEGRATION_CONTRACT.md, mirroring Uriel's [URIEL:*] / Beelzebub's [BEELZ:*]).
 ///
 /// Wire rule: ONE ctx.Reply per [FAUST:*] line — BCH reads each System-chat message as a single
-/// wire line and does NOT split on '\n'. Paged lists = N row-replies + a [FAUST:end] trailer.
+/// wire line and does NOT split on '\n'. Paged lists go through <see cref="Wire.SendPage"/>.
 ///
-/// ApiVersion 1 (foundation): the handshake (.faust api version) advertises each feature's
-/// resolved access + cost so BCH can gate its UI and show the price without a round-trip, plus a
-/// trivial ping probe to prove the round-trip end to end. Feature query commands land as their
-/// services are built (design build order); bump ApiVersion whenever the wire grows.
+/// Every query runs through <see cref="FaustAccessGate"/> first; a denied call emits only its
+/// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
+/// result, so an empty/notfound lookup is never charged.
+///
+/// ApiVersion 2: handshake + ping (foundation) and the first investigation queries — castleinfo
+/// (#2), plots (#4), pinfo (#3), positions (#1). Bump ApiVersion whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 1;
+    const int ApiVersion = 2;
 
-    // The feature tokens advertised in the handshake, in a stable order (design §2/§5).
     static readonly string[] FeatureOrder =
     {
         Settings.PlayerPositions, Settings.CastleInfo, Settings.PlayerInfo,
         Settings.PlotAvailability, Settings.ObjectScan, Settings.CastleResources, Settings.Stats,
     };
+
+    // ---- Foundation: handshake + probe ----
 
     [Command("version", description: "BCH handshake: ApiVersion, ready flag, and each feature's resolved access + cost.")]
     public static void Version(ChatCommandContext ctx)
@@ -58,5 +66,109 @@ internal static class ApiCommands
     {
         if (!Core.IsReady) { ctx.Reply("[FAUST:err] code=notready"); return; }
         ctx.Reply($"[FAUST:pong] api={ApiVersion} plugin={MyPluginInfo.PLUGIN_VERSION}");
+    }
+
+    // ---- #2 Castle / plot info ----
+
+    [Command("castleinfo", description: "BCH: castle/plot info. Usage: .faust api castleinfo <here|nearest|tindex>")]
+    public static void CastleInfo(ChatCommandContext ctx, string token = "here")
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.CastleInfo);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        int tindex;
+        if (string.Equals(token, "here", StringComparison.OrdinalIgnoreCase))
+            tindex = Core.Castle.GetTerritoryIndexAt(SenderPos(ctx));
+        else if (string.Equals(token, "nearest", StringComparison.OrdinalIgnoreCase))
+            tindex = Core.Castle.GetNearestHeartTerritory(SenderPos(ctx));
+        else if (!int.TryParse(token, out tindex))
+        { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.CastleInfo}"); return; }
+
+        if (tindex < 0 || !Core.Castle.TryGetTerritory(tindex, out var t))
+        { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.CastleInfo}"); return; }
+
+        ctx.Reply(
+            $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
+            $"steam={t.OwnerSteamId} region={Wire.Safe(t.Region)} size={t.SizeBlocks} " +
+            $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
+            $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}");
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- #4 Plot availability ----
+
+    [Command("plots", description: "BCH: free plots, largest first (paged). Usage: .faust api plots [page]")]
+    public static void Plots(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.PlotAvailability);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var plots = Core.Castle.GetFreePlots();
+        var rows = new List<string>(plots.Count);
+        foreach (var p in plots)
+            rows.Add($"[FAUST:plot] tindex={p.TerritoryIndex} size={p.SizeBlocks} region={Wire.Safe(p.Region)}");
+
+        // One ctx.Reply per wire line + a [FAUST:end] trailer (never \n-join a page).
+        if (Wire.SendPage(ctx, "plots", rows, page)) FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- #3 Player info (self always allowed) ----
+
+    [Command("pinfo", description: "BCH: player info. Usage: .faust api pinfo <name|steamId>")]
+    public static void PlayerInfo(ChatCommandContext ctx, string nameOrId)
+    {
+        if (!EntityExtensions.TryResolvePlayer(nameOrId, out var steamId, out _, out _, out var err))
+        {
+            // Run the gate first so access/cost still governs even a failed lookup's visibility.
+            var g0 = FaustAccessGate.TryAuthorize(ctx, Settings.PlayerInfo);
+            if (!g0.Allowed) { ctx.Reply(g0.DenyWire); return; }
+            ctx.Reply($"[FAUST:err] code=notfound feature={Settings.PlayerInfo}");
+            return;
+        }
+
+        bool self = steamId == ctx.Event.User.PlatformId;
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.PlayerInfo, bypassAccess: self);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        if (!Core.PlayerInfo.TryGetPlayer(steamId, out var s))
+        { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.PlayerInfo}"); return; }
+
+        ctx.Reply(
+            $"[FAUST:player] steam={s.SteamId} name={Wire.Safe(s.Name)} online={(s.Online ? 1 : 0)} " +
+            $"lastonline={ToUnix(s.LastConnected)} firstseen={ToUnix(s.FirstSeen)} " +
+            $"sessions={s.Sessions} playmins={s.PlayMinutes} freq=-1 peakhour={s.PeakHour}");
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- #1 Online positions (admin-default) ----
+
+    [Command("positions", description: "BCH: positions of online players (paged). Usage: .faust api positions [page]")]
+    public static void Positions(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.PlayerPositions);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var positions = Core.PlayerInfo.GetOnlinePositions();
+        var rows = new List<string>(positions.Count);
+        foreach (var p in positions)
+            rows.Add($"[FAUST:pos] steam={p.SteamId} name={Wire.Safe(p.Name)} " +
+                     $"x={F(p.X)} z={F(p.Z)} tindex={p.TerritoryIndex}");
+
+        if (Wire.SendPage(ctx, "positions", rows, page)) FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- helpers ----
+
+    static Unity.Mathematics.float3 SenderPos(ChatCommandContext ctx) =>
+        ctx.Event.SenderCharacterEntity.Read<LocalToWorld>().Position;
+
+    static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>DateTime.ToBinary() value -> Unix seconds (UTC); 0/-1 pass through unchanged.</summary>
+    static long ToUnix(long binary)
+    {
+        if (binary <= 0) return binary; // 0 = unknown, -1 = not tracked
+        try { return ((DateTimeOffset)DateTime.FromBinary(binary).ToUniversalTime()).ToUnixTimeSeconds(); }
+        catch { return 0; }
     }
 }

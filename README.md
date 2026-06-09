@@ -10,13 +10,14 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — foundation stage
+## ⚠ Status: pre-1.0 — early data release (0.2.0)
 
-Faust is **brand-new**. The current release is the **Foundation + permission/cost layer**: the
-gatekeeper every query flows through, the per-feature config, and the BloodCraftHub handshake —
-shipped with **no investigation features wired yet**, by design (see the build order). It loads,
-registers commands, and answers `.faust api version` / `.faust api ping`. The data-gathering
-features are in active development.
+Faust is **brand-new**. The foundation (the per-feature permission/cost gate + the BloodCraftHub
+handshake) is in place, and the **first investigation queries are live**: castle/plot info, plot
+availability, player info (online + last-online), and online-player positions. They compile clean
+and are wired through the gate, but are **not yet validated on a live server** — this release is
+for first in-game testing and client-side (BloodCraftHub) integration. The persistence-backed
+stats (playtime/frequency/leaderboards) and the remaining features are in active development.
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.

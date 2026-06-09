@@ -17,16 +17,17 @@ internal static class HelpCommands
         switch (topic?.ToLowerInvariant())
         {
             case "players":
-                ctx.Reply("PLAYERS (planned): '.faust api pinfo <name|steamId>' — last login, frequency, " +
-                          "playtime, peak hours. Position intel is admin-default.");
+                ctx.Reply("PLAYERS: '.faust api pinfo <name|steamId>' — online state & last-online (yourself " +
+                          "always; others admin-gated). Playtime/frequency stats arrive with session tracking. " +
+                          "'.faust api positions' — online players' locations (admin-default).");
                 break;
             case "castles":
-                ctx.Reply("CASTLES (planned): '.faust api castleinfo <here|nearest|tindex>' — owner, heart " +
-                          "level, decay/raidable state, last-online. '.faust api plots' — free plots, largest first.");
+                ctx.Reply("CASTLES: '.faust api castleinfo <here|nearest|tindex>' — owner, region, size, decay " +
+                          "state & time, owner online/last-online. '.faust api plots [page]' — open plots, largest first.");
                 break;
             case "server":
                 ctx.Reply("SERVER (planned): '.faust api stats <players|kills|playtime|concurrency>' — " +
-                          "leaderboards & time-series for BloodCraftHub graphs.");
+                          "leaderboards & time-series for BloodCraftHub graphs (needs session tracking).");
                 break;
             case "admin":
                 ctx.Reply("ADMIN: per-feature exposure (Off/AdminOnly/Players), item cost, and cooldown live in " +
@@ -35,9 +36,8 @@ internal static class HelpCommands
                 break;
             default:
                 ctx.Reply("Faust help — topics: '.faust help players | castles | server | admin'.\n" +
-                          "Foundation stage: only the access gate + BCH handshake are live " +
-                          "('.faust api version', '.faust api ping'). Feature queries are being built per " +
-                          "docs/FAUST_DESIGN.md build order.");
+                          "Live queries: '.faust api castleinfo|plots|pinfo|positions', plus the BCH handshake " +
+                          "'.faust api version' / 'ping'. More per docs/FAUST_DESIGN.md build order.");
                 break;
         }
     }

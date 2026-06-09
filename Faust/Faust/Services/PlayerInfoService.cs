@@ -20,11 +20,12 @@ internal sealed class PlayerInfoService
         public string Name { get; init; }
         public bool Online { get; init; }
         public long LastConnected { get; init; } // DateTime binary
-        // ---- time-series (pending FaustStore; -1 = not yet tracked) ----
-        public long FirstSeen { get; init; }
+        // ---- time-series, derived from FaustStore session log (-1 = none recorded yet) ----
+        public long FirstSeenUnix { get; init; }
         public int Sessions { get; init; }
         public long PlayMinutes { get; init; }
         public int PeakHour { get; init; }
+        public double FreqPerWeek { get; init; }
     }
 
     public readonly struct PlayerPosition
@@ -53,17 +54,22 @@ internal sealed class PlayerInfoService
         return false;
     }
 
-    static PlayerSnapshot Build(User u) => new()
+    static PlayerSnapshot Build(User u)
     {
-        SteamId = u.PlatformId,
-        Name = u.CharacterName.ToString(),
-        Online = u.IsConnected,
-        LastConnected = u.TimeLastConnected,
-        FirstSeen = -1,
-        Sessions = -1,
-        PlayMinutes = -1,
-        PeakHour = -1,
-    };
+        var m = Core.Store.GetMetrics(u.PlatformId);
+        return new PlayerSnapshot
+        {
+            SteamId = u.PlatformId,
+            Name = u.CharacterName.ToString(),
+            Online = u.IsConnected,
+            LastConnected = u.TimeLastConnected,
+            FirstSeenUnix = m.FirstSeenUnix,
+            Sessions = m.SessionCount,
+            PlayMinutes = m.PlayMinutes,
+            PeakHour = m.PeakHour,
+            FreqPerWeek = m.FreqPerWeek,
+        };
+    }
 
     /// <summary>Positions of all online players — feature #1 (admin-default; rendering is BCH-side).</summary>
     public List<PlayerPosition> GetOnlinePositions()

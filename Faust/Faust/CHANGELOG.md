@@ -3,6 +3,17 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.3.0 (2026-06-09)
+
+- **Player stats are now real.** Faust now logs connect/disconnect over time, so `.faust api pinfo`
+  reports actual **first-seen, session count, total playtime, logins/week, and peak hour** (the
+  game itself only remembers your *last* login). Data accrues from the moment Faust is installed.
+- **New: `.faust api stats <playtime|concurrency>`** — a playtime leaderboard and a server
+  population history (for BloodCraftHub graphs).
+- Sessions persist to `BepInEx/config/Faust/sessions.json`.
+- Note: still an early release for testing — the session-logging path hasn't been validated across
+  a live reconnect cycle yet.
+
 ## 0.2.0 (2026-06-09)
 
 - **First investigation queries are live** (for BloodCraftHub + testing):

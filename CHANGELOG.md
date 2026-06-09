@@ -7,6 +7,49 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.3.0] - 2026-06-09
+
+### Added — persistence (FaustStore): real player playtime/frequency + server stats
+
+The session/time-series layer the game doesn't keep (it stores only the *last* connect time).
+**ApiVersion → 3.**
+
+- **`FaustStore`** (`Services/FaustStore.cs`) — logs every connect/disconnect to
+  `BepInEx/config/Faust/sessions.json` (System.Text.Json), created at `Plugin.Load` (no ECS
+  dependency, so it captures connects before game-data init). Derives per-player first-seen,
+  session count, total playtime, login frequency (per week), and peak hour (UTC histogram); also
+  records an online-count sample at each connect/disconnect for a concurrency series. Open sessions
+  are closed on clean shutdown (`Plugin.Unload`) so the last session's playtime is kept; a hard
+  crash closes them at boot (negligible-time, never infinite). Concurrency capped to 4000 points.
+- **Connectivity patches** (`Patches/PlayerConnectivityPatches.cs`) — `ServerBootstrapSystem`
+  `OnUserConnected` (postfix) / `OnUserDisconnected` (prefix), resolving the User from the
+  `NetConnectionId` (KindredCommands pattern); fully try/catch-guarded.
+- **`pinfo` time-series now live** — `firstseen`, `sessions`, `playmins`, `freq`, `peakhour` are
+  real (were `-1` placeholders in 0.2.0). A player with no recorded sessions yet still returns `-1`
+  for those (data accrues from install).
+- **`.faust api stats <playtime|concurrency> [page]`** (#8) — `[FAUST:stat]` leaderboard rows
+  (top players by total minutes) and concurrency time-series points (for BCH graphs, #9).
+- BCH contract updated: pinfo marked fully implemented, `stats` shapes documented
+  (`playtime`/`concurrency` live; `kills`/`resources` planned), ApiVersion 3.
+
+### Added — admin-control design (docs/features/ADMIN_CONTROL.md)
+
+Captured the full administrative-flexibility spec: per-feature axes (active toggle, audience, **PvP
+availability**, item cost, **rate/time-lock windows**, **unlock criteria**), the target gate
+evaluation order, runtime operational control (`.faust admin block/unblock/schedule/status` with
+countdowns and time-of-day windows), and the build phases. The current `FaustStore` is the
+persistence foundation that whole control surface builds on.
+
+### Validated
+
+- 0.2.0's read layer was confirmed working on a live server (castleinfo/plots/pinfo/positions all
+  returned data and committed through the gate; per-feature admin gating enforced as designed).
+
+### Notes
+
+- Compiles clean (0 warnings). The persistence/connectivity path is **not yet validated on a live
+  server** — first reconnect cycle will confirm session logging.
+
 ## [0.2.0] - 2026-06-09
 
 ### Added — first investigation queries: castle/plot info, plot availability, player info, positions

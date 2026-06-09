@@ -26,6 +26,7 @@ public class Plugin : BasePlugin
         Log.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} v{MyPluginInfo.PLUGIN_VERSION} loading...");
 
         Settings.Initialize(Config);
+        Core.InitPersistence(); // stand up the session store before patches/connect events fire
 
         Harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
         Harmony.PatchAll(System.Reflection.Assembly.GetExecutingAssembly());
@@ -40,6 +41,7 @@ public class Plugin : BasePlugin
     public override bool Unload()
     {
         CommandRegistry.UnregisterAssembly();
+        Core.Store?.CloseAllOpen(); // keep the last session's playtime on a clean shutdown
         Harmony?.UnpatchSelf();
         return true;
     }

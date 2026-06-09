@@ -21,13 +21,15 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 2: handshake + ping (foundation) and the first investigation queries — castleinfo
-/// (#2), plots (#4), pinfo (#3), positions (#1). Bump ApiVersion whenever the wire grows.
+/// ApiVersion 3: handshake + ping (foundation), the investigation queries — castleinfo (#2),
+/// plots (#4), pinfo (#3, now with FaustStore-derived playtime/frequency/peak-hour), positions
+/// (#1) — and server stats (#8: playtime leaderboard + concurrency series). Bump whenever the
+/// wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 2;
+    const int ApiVersion = 3;
 
     static readonly string[] FeatureOrder =
     {
@@ -135,9 +137,37 @@ internal static class ApiCommands
 
         ctx.Reply(
             $"[FAUST:player] steam={s.SteamId} name={Wire.Safe(s.Name)} online={(s.Online ? 1 : 0)} " +
-            $"lastonline={ToUnix(s.LastConnected)} firstseen={ToUnix(s.FirstSeen)} " +
-            $"sessions={s.Sessions} playmins={s.PlayMinutes} freq=-1 peakhour={s.PeakHour}");
+            $"lastonline={ToUnix(s.LastConnected)} firstseen={s.FirstSeenUnix} " +
+            $"sessions={s.Sessions} playmins={s.PlayMinutes} freq={Freq(s.FreqPerWeek)} peakhour={s.PeakHour}");
         FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- #8 Server stats (playtime leaderboard + concurrency series) ----
+
+    [Command("stats", description: "BCH: server stats. Usage: .faust api stats <playtime|concurrency> [page]")]
+    public static void Stats(ChatCommandContext ctx, string kind, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        kind = kind?.ToLowerInvariant();
+        List<string> rows;
+        if (kind == "playtime")
+        {
+            rows = new List<string>();
+            int rank = 1;
+            foreach (var e in Core.Store.GetPlaytimeLeaderboard())
+                rows.Add($"[FAUST:stat] kind=playtime rank={rank++} steam={e.steam} name={Wire.Safe(e.name)} value={e.minutes}");
+        }
+        else if (kind == "concurrency")
+        {
+            rows = new List<string>();
+            foreach (var p in Core.Store.GetConcurrency(200))
+                rows.Add($"[FAUST:stat] kind=concurrency t={p.t} avg={p.count}");
+        }
+        else { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.Stats}"); return; }
+
+        if (Wire.SendPage(ctx, $"stats kind={kind}", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
     // ---- #1 Online positions (admin-default) ----
@@ -163,6 +193,9 @@ internal static class ApiCommands
         ctx.Event.SenderCharacterEntity.Read<LocalToWorld>().Position;
 
     static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>Logins/week with one decimal; the -1 "not tracked" sentinel stays a bare -1.</summary>
+    static string Freq(double v) => v < 0 ? "-1" : v.ToString("0.0", CultureInfo.InvariantCulture);
 
     /// <summary>DateTime.ToBinary() value -> Unix seconds (UTC); 0/-1 pass through unchanged.</summary>
     static long ToUnix(long binary)

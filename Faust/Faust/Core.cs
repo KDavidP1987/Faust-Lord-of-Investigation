@@ -27,8 +27,19 @@ internal static class Core
     public static CastleService Castle { get; private set; }
     public static PlayerInfoService PlayerInfo { get; private set; }
 
+    // ---- Persistence; created at Plugin.Load (no ECS dependency) so it captures connect events
+    //      that can land before game-data init completes. ----
+    public static FaustStore Store { get; private set; }
+
     public static ManualLogSource Log => Plugin.PluginLog;
     public static bool IsReady { get; private set; }
+
+    /// <summary>Stand up the persistence layer immediately at Plugin.Load (independent of the ECS world).</summary>
+    internal static void InitPersistence()
+    {
+        Store = new FaustStore();
+        Store.Load();
+    }
 
     static bool _initInProgress;
     static int _initAttempts;

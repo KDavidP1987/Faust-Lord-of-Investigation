@@ -26,8 +26,9 @@ internal static class HelpCommands
                           "state & time, owner online/last-online. '.faust api plots [page]' — open plots, largest first.");
                 break;
             case "server":
-                ctx.Reply("SERVER (planned): '.faust api stats <players|kills|playtime|concurrency>' — " +
-                          "leaderboards & time-series for BloodCraftHub graphs (needs session tracking).");
+                ctx.Reply("SERVER: '.faust api stats playtime' — top players by total playtime; " +
+                          "'.faust api stats concurrency' — server population history (BCH graphs). " +
+                          "Kills/resource leaderboards are planned.");
                 break;
             case "admin":
                 ctx.Reply("ADMIN: per-feature exposure (Off/AdminOnly/Players), item cost, and cooldown live in " +

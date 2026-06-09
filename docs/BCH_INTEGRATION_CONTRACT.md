@@ -65,11 +65,11 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 2):** the four shapes below are **IMPLEMENTED** and live as of
-> Faust 0.2.0 — these are the contract, not a proposal. Fields flagged *(pending)* are emitted
-> with a sentinel until the persistence subsystem lands; the token is already on the wire so
-> BCH can build the full panel now. `objectscan` (#5), `castleresources` (#6), and `stats` (#8)
-> are still proposed (later sections / design build order).
+> **Status (ApiVersion 3):** the shapes below are **IMPLEMENTED** and live as of Faust 0.3.0 —
+> castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
+> positions (#1), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) and
+> `castleresources` (#6) are still proposed (design build order). A `-1` in any numeric field is
+> the "not tracked / none recorded yet" sentinel.
 
 ### `castleinfo` (#2) — IMPLEMENTED
 `.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
@@ -94,17 +94,19 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 [FAUST:end] cmd=plots page=<cur>/<total> count=<n>
 ```
 
-### `playerinfo` (#3) — IMPLEMENTED (time-series pending)
+### `playerinfo` (#3) — IMPLEMENTED
 `.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the
 `playerinfo` feature access (AdminOnly by default). Name lookups must be unique (exact name wins).
 ```
 [FAUST:player] steam=<id> name=<wire_name> online=<0|1> lastonline=<unixUtc> \
     firstseen=<unixUtc> sessions=<n> playmins=<total> freq=<perWeek> peakhour=<0-23>
 ```
-- `online`, `lastonline` are **live now**. `firstseen`, `sessions`, `playmins`, `freq`,
-  `peakhour` are **`-1` (not yet tracked)** until the FaustStore session/time-series persistence
-  lands (design §6) — the game only stores the *last* connect time. The fields are on the wire so
-  BCH can render the panel against the final shape today.
+- All fields are **live**, derived from Faust's own session log (`FaustStore`) — the game only
+  stores the *last* connect time, so Faust logs connect/disconnect over time. `firstseen` is Unix
+  UTC; `playmins` is total minutes; `freq` is logins/week (one decimal); `peakhour` is the busiest
+  hour-of-day (0–23, **UTC**). A player with **no recorded sessions yet** (e.g. hasn't reconnected
+  since Faust was installed) returns `-1` for the time-series fields; `online`/`lastonline` still
+  come straight off the User entity.
 - Hover-to-identify is a **BCH client-side** mechanic (find the player entity under the cursor,
   read SteamID/name off replicated state) → then BCH calls this command.
 
@@ -137,14 +139,20 @@ Chest **contents** only for own/clan containers; never enemy (not replicated).
     item=<guid>:<qty> item=<guid>:<qty> …    (or paged [FAUST:res] rows + [FAUST:end])
 ```
 
-### `stats` (#8)
-`.faust api stats <kind> <page>` — `<kind>` ∈ `players|kills|playtime|concurrency`.
+### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`)
+`.faust api stats <kind> [page]` — `<kind>` ∈ `playtime` | `concurrency` (live); `kills` |
+`resources` are planned (need kill tracking / container scans).
 ```
-[FAUST:stat] kind=<kind> rank=<n> name=<name> value=<num> [t=<unixUtc>]   ; leaderboard rows
-[FAUST:stat] kind=concurrency t=<unixUtc> avg=<f>                          ; time-series points (for #9 graphs)
-[FAUST:end] cmd=stats kind=<kind> page=<cur>/<total>
+[FAUST:stat] kind=playtime rank=<n> steam=<id> name=<wire_name> value=<minutes>   ; leaderboard rows
+[FAUST:stat] kind=concurrency t=<unixUtc> avg=<count>                              ; time-series points (for #9 graphs)
+[FAUST:end] cmd=stats kind=<kind> page=<cur>/<total> count=<n>
 ```
-BCH renders leaderboards as tables and concurrency/time-series as **graphs** (#9).
+- `playtime`: total minutes per player (descending), from the session log.
+- `concurrency`: an online-player-count sample recorded at **each connect/disconnect** (event-
+  driven, not a fixed interval), oldest→newest, capped to the most recent 200 points. `avg` is the
+  sampled count at time `t`. BCH renders leaderboards as tables and concurrency as **graphs** (#9).
+- Both are derived from `FaustStore`; they accumulate from the moment Faust is installed (no
+  history before that).
 
 ---
 

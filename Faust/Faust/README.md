@@ -13,11 +13,12 @@ an **item cost** — the Faustian toll — so on PvP/competitive servers, knowle
 
 ## ⚠ Heads-up before you install
 
-**Pre-1.0 — early development.** The first investigation queries are live (castle/plot info, plot
-availability, player info, online positions), gated per feature with an optional item cost — but
-this is an **early data release for testing**, not yet validated on a live server. By running it
-you're helping test it. **Back up your server save** before adding any mod. Commands, config keys,
-and behavior will change before 1.0.
+**Pre-1.0 — early development.** The investigation queries (castle/plot info, plot availability,
+player info, online positions) are live and confirmed working in game, each gated per feature with
+an optional item cost. 0.3.0 adds session tracking for real playtime/frequency stats and a server
+`stats` view (that persistence path is still being tested). By running it you're helping test it.
+**Back up your server save** before adding any mod. Commands, config keys, and behavior will change
+before 1.0.
 
 **Found a bug or have an idea?** The fastest path to a fix is the
 **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — the primary bug-report and
@@ -95,15 +96,16 @@ driven by the BloodCraftHub UI, but each works from chat too.
 |---|---|
 | `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, size, decay state & time, owner online/last-online |
 | `.faust api plots [page]` | Open building plots across the map, largest first |
-| `.faust api pinfo <name\|steamId>` | A player's online state & last-online (yourself always; others admin-gated) |
+| `.faust api pinfo <name\|steamId>` | A player's online state, last-online, **playtime, sessions, logins/week & peak hour** (yourself always; others admin-gated) |
 | `.faust api positions [page]` | Locations of online players *(admin-default)* |
+| `.faust api stats <playtime\|concurrency> [page]` | Playtime leaderboard / server population history |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |
 | `.faust` · `.faust help [topic]` | Overview / topic-by-topic help |
 
-Per-query playtime & frequency stats (`pinfo`), and server leaderboards/`stats`, arrive once Faust
-begins tracking sessions over time. Each query obeys its per-feature access, item cost, and
-cooldown (config below); an empty or not-found lookup is never charged.
+Playtime/frequency stats accrue from the moment Faust is installed (the game only remembers your
+*last* login, so Faust logs sessions over time). Each query obeys its per-feature access, item
+cost, and cooldown (config below); an empty or not-found lookup is never charged.
 
 ## Configuration
 

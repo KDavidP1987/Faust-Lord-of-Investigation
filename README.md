@@ -10,14 +10,17 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.2.0)
+## ⚠ Status: pre-1.0 — early data release (0.3.0)
 
-Faust is **brand-new**. The foundation (the per-feature permission/cost gate + the BloodCraftHub
-handshake) is in place, and the **first investigation queries are live**: castle/plot info, plot
-availability, player info (online + last-online), and online-player positions. They compile clean
-and are wired through the gate, but are **not yet validated on a live server** — this release is
-for first in-game testing and client-side (BloodCraftHub) integration. The persistence-backed
-stats (playtime/frequency/leaderboards) and the remaining features are in active development.
+Faust is **brand-new**, but moving fast. Live today: the per-feature permission/cost gate, the
+BloodCraftHub handshake, and the investigation queries — **castle/plot info, plot availability,
+player info, and online positions are confirmed working on a live server**. 0.3.0 adds the
+`FaustStore` persistence layer (connect/disconnect logging → real playtime/frequency/peak-hour in
+`pinfo`, plus a `stats` playtime leaderboard and concurrency series); the persistence path itself
+is pending a live reconnect-cycle test. The broader **administrative control surface** (PvP
+availability, time-locked/windowed access, unlock criteria, and runtime block/schedule commands)
+is specced in [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) and is the next
+major phase.
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.
@@ -110,6 +113,7 @@ before any release commit — it verifies version parity and changelog entries. 
 - [`CLAUDE.md`](CLAUDE.md) — working agreements & architecture guide
 - [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) — vision, feature evaluation, build order
 - [`docs/BCH_INTEGRATION_CONTRACT.md`](docs/BCH_INTEGRATION_CONTRACT.md) — the BloodCraftHub living contract
+- [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) — the admin control-surface spec (gating, cost, time-locks, unlocks, runtime control)
 - [`docs/PREFLIGHT.md`](docs/PREFLIGHT.md) — session-start checklist
 - [`docs/DEV_REMINDERS.md`](docs/DEV_REMINDERS.md) — IL2CPP/ECS gotchas & process rules
 - [`CHANGELOG.md`](CHANGELOG.md) — full changelog (the Thunderstore package carries a condensed one)

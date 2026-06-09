@@ -3,6 +3,14 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.6.0 (2026-06-09)
+
+- **New: `.faust api resources <here|nearest|tindex>`** — see the **total resources stashed in a
+  castle** (sums every chest and station). Defaults to admin-only and is a perfect candidate to
+  charge an item for, or restrict to PvP servers, via the per-feature settings. Powerful raid intel
+  for the BloodCraftHub UI.
+- Note: still an early release — the castle scan hasn't been validated against a live castle yet.
+
 ## 0.5.0 (2026-06-09)
 
 - **New: lock a feature behind beating a boss.** A feature can require defeating a specific V Blood

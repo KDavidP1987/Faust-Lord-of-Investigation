@@ -98,6 +98,7 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api plots [page]` | Open building plots across the map, largest first |
 | `.faust api pinfo <name\|steamId>` | A player's online state, last-online, **playtime, sessions, logins/week & peak hour** (yourself always; others admin-gated) |
 | `.faust api positions [page]` | Locations of online players *(admin-default)* |
+| `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle *(admin-default; great to price/PvP-gate)* |
 | `.faust api stats <playtime\|concurrency> [page]` | Playtime leaderboard / server population history |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |

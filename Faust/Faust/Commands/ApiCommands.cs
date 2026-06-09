@@ -21,15 +21,15 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 5: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
-/// (#1) — server stats (#8: playtime + concurrency), and the full admin-control gate (per-feature
-/// block/schedule/PvP/window-period/cost + unlock criteria). Deny codes: blocked, schedule, pvp,
-/// window, locked. Bump whenever the wire grows.
+/// ApiVersion 6: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
+/// (#1), resources (#6) — server stats (#8: playtime + concurrency), and the full admin-control
+/// gate (block/schedule/PvP/window-period/cost + unlock criteria). Deny codes: blocked, schedule,
+/// pvp, window, locked. Bump whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 5;
+    const int ApiVersion = 6;
 
     static readonly string[] FeatureOrder =
     {
@@ -140,6 +140,37 @@ internal static class ApiCommands
             $"lastonline={ToUnix(s.LastConnected)} firstseen={s.FirstSeenUnix} " +
             $"sessions={s.Sessions} playmins={s.PlayMinutes} freq={Freq(s.FreqPerWeek)} peakhour={s.PeakHour}");
         FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- #6 Enemy castle resource totals (admin-default, PvP-sensitive) ----
+
+    [Command("resources", description: "BCH: sum a castle's container contents. Usage: .faust api resources <here|nearest|tindex> [page]")]
+    public static void Resources(ChatCommandContext ctx, string token = "here", int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.CastleResources);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        int tindex;
+        if (string.Equals(token, "here", StringComparison.OrdinalIgnoreCase))
+            tindex = Core.Castle.GetTerritoryIndexAt(SenderPos(ctx));
+        else if (string.Equals(token, "nearest", StringComparison.OrdinalIgnoreCase))
+            tindex = Core.Castle.GetNearestHeartTerritory(SenderPos(ctx));
+        else if (!int.TryParse(token, out tindex))
+        { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.CastleResources}"); return; }
+
+        if (tindex < 0 || !Core.Castle.TrySummarizeResources(tindex, out var sum))
+        { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.CastleResources}"); return; }
+
+        if (page <= 1)
+            ctx.Reply($"[FAUST:res] tindex={sum.TerritoryIndex} owner={Wire.Safe(sum.OwnerName)} steam={sum.OwnerSteamId} " +
+                      $"containers={sum.Containers} totalitems={sum.TotalItems} distinct={sum.Items.Count}");
+
+        var rows = new List<string>(sum.Items.Count);
+        foreach (var it in sum.Items)
+            rows.Add($"[FAUST:item] guid={it.guid} qty={it.qty} name={Wire.Safe(it.name)}");
+
+        Wire.SendPage(ctx, "resources", rows, page);
+        FaustAccessGate.Commit(ctx, gate); // a resolved castle is a real result, even if empty
     }
 
     // ---- #8 Server stats (playtime leaderboard + concurrency series) ----

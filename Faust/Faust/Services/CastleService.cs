@@ -3,6 +3,7 @@ using ProjectM;
 using ProjectM.CastleBuilding;
 using ProjectM.Network;
 using ProjectM.Terrain;
+using Stunlock.Core;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -35,6 +36,17 @@ internal sealed class CastleService
         public int SizeBlocks { get; init; }
         public PlotState State { get; init; }
         public long DecaySeconds { get; init; }       // seconds of fuel left; -1 = never decays
+    }
+
+    /// <summary>Summed contents of every container in a castle — feature #6 (PvP raid intel).</summary>
+    public readonly struct ResourceSummary
+    {
+        public int TerritoryIndex { get; init; }
+        public ulong OwnerSteamId { get; init; }
+        public string OwnerName { get; init; }
+        public int Containers { get; init; }   // containers that held at least one item
+        public long TotalItems { get; init; }   // grand total item count
+        public List<(int guid, long qty, string name)> Items { get; init; } // distinct, qty-descending
     }
 
     // Lazily-built block-coord -> territory-index map (CastleTerritoryService pattern).
@@ -136,6 +148,83 @@ internal sealed class CastleService
         finally { territories.Dispose(); }
         result.Sort((a, b) => b.SizeBlocks.CompareTo(a.SizeBlocks));
         return result;
+    }
+
+    /// <summary>
+    /// Sum every container's contents in the castle on a territory (feature #6). Returns false for
+    /// an unclaimed/heart-less territory. Enumerates entities connected to the castle heart
+    /// (CastleHeartConnection) — including stations — and totals their inventories. Admin/priced by
+    /// default: this is a full heart-connected scan, so it's intended for an on-demand query.
+    /// </summary>
+    public bool TrySummarizeResources(int territoryIndex, out ResourceSummary summary)
+    {
+        summary = default;
+        if (territoryIndex < 0) return false;
+
+        Entity heart = Entity.Null;
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+            {
+                var ct = territories[i].Read<CastleTerritory>();
+                if (ct.CastleTerritoryIndex != territoryIndex) continue;
+                heart = ct.CastleHeart; break;
+            }
+        }
+        finally { territories.Dispose(); }
+        if (!heart.Exists()) return false; // unclaimed plot — no resources to report
+
+        ulong steam = 0; string ownerName = "Unknown";
+        if (heart.TryGetComponent<UserOwner>(out var uo) && uo.Owner.GetEntityOnServer().TryGetComponent<User>(out var u))
+        {
+            steam = u.PlatformId; ownerName = u.CharacterName.ToString();
+        }
+
+        var totals = new Dictionary<int, long>();
+        int containers = 0; long totalItems = 0;
+        var ents = Query.GetEntitiesByComponentType<CastleHeartConnection>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < ents.Length; i++)
+            {
+                var e = ents[i];
+                if (!e.TryGetComponent<CastleHeartConnection>(out var c) || c.CastleHeartEntity.GetEntityOnServer() != heart) continue;
+                if (!InventoryUtilities.TryGetInventoryEntity(Core.EntityManager, e, out Entity inv)) continue;
+                if (!Core.EntityManager.HasComponent<InventoryBuffer>(inv)) continue;
+
+                var buf = Core.EntityManager.GetBuffer<InventoryBuffer>(inv);
+                bool counted = false;
+                for (int b = 0; b < buf.Length; b++)
+                {
+                    var slot = buf[b];
+                    int g = slot.ItemType.GuidHash;
+                    if (g == 0 || slot.Amount <= 0) continue;
+                    totals.TryGetValue(g, out var cur);
+                    totals[g] = cur + slot.Amount;
+                    totalItems += slot.Amount;
+                    counted = true;
+                }
+                if (counted) containers++;
+            }
+        }
+        finally { ents.Dispose(); }
+
+        var items = new List<(int guid, long qty, string name)>(totals.Count);
+        foreach (var kvp in totals)
+            items.Add((kvp.Key, kvp.Value, new PrefabGUID(kvp.Key).GetPrefabName()));
+        items.Sort((a, b) => b.qty.CompareTo(a.qty));
+
+        summary = new ResourceSummary
+        {
+            TerritoryIndex = territoryIndex,
+            OwnerSteamId = steam,
+            OwnerName = ownerName,
+            Containers = containers,
+            TotalItems = totalItems,
+            Items = items,
+        };
+        return true;
     }
 
     TerritoryInfo BuildInfo(Entity territoryEntity, CastleTerritory ct)

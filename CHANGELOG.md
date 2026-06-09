@@ -7,6 +7,32 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.6.0] - 2026-06-09
+
+### Added — castle resource intel (#6): sum an enemy castle's contents
+
+The powerful PvP raid-intel query. **ApiVersion → 6.**
+
+- **`.faust api resources <here|nearest|tindex> [page]`** — totals every container's contents in
+  the castle on a territory (containers + stations connected to the heart). Emits a
+  `[FAUST:res]` summary header (owner, steam, container count, total items, distinct types) then
+  paged `[FAUST:item] guid= qty= name=` rows (quantity-descending).
+- **`CastleService.TrySummarizeResources`** — resolves the territory's heart, enumerates entities
+  via `CastleHeartConnection.CastleHeartEntity`, resolves each inventory
+  (`InventoryUtilities.TryGetInventoryEntity`), and sums `InventoryBuffer` (`ItemType`/`Amount`).
+  Unclaimed plot → `notfound`; a claimed-but-empty castle → header with zeros.
+- Defaults to **AdminOnly** and is the natural feature to price (`CostItemGuid`) or PvP-gate
+  (`Availability=PvPOnly`) via the admin-control axes. Routes through `FaustAccessGate` like every
+  query (a resolved castle is a real result and commits cost even when empty).
+- Contract updated (shape marked implemented). With this, the only remaining query is `objectscan`
+  (#5), which the design keeps **client-side** (BCH reads nearby entities; server only if priced).
+
+### Notes
+
+- Compiles clean (0 warnings). The container scan + inventory sum are **not yet validated on a
+  live server** — needs an in-game pass against a real castle. Note: it's a full heart-connected
+  scan, so on very large servers it's an on-demand admin query, not a hot path.
+
 ## [0.5.0] - 2026-06-09
 
 ### Added — unlock criteria (the final admin-control axis)

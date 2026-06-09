@@ -10,7 +10,7 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.5.0)
+## ⚠ Status: pre-1.0 — early data release (0.6.0)
 
 Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
 queries — **castle/plot info, plot availability, player info, online positions**. Added since:
@@ -19,9 +19,11 @@ playtime leaderboard and concurrency series), and the **complete administrative 
 ([`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md)) — item cost (consumed), flat
 cooldowns and window-per-period time-locks, PvP/PvE gating, live `.faust admin block/schedule`
 overrides, and **unlock criteria** (a feature opens only after defeating a configured V Blood /
-Dracula, or an admin grant). The persistence and admin-control paths compile clean but are
-**pending a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and the
-`objectscan` (#5) / `castleresources` (#6) queries.
+Dracula, or an admin grant). 0.6.0 adds **`castleresources` (#6)** — summing an enemy castle's
+total contents. The persistence, admin-control, and resource paths compile clean but are **pending
+a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and `objectscan`
+(#5) — which the design keeps client-side (BloodCraftHub reads nearby entities; server only if an
+admin prices it). The investigation feature set is otherwise feature-complete.
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.

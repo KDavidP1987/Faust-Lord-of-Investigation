@@ -65,11 +65,12 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 5):** the shapes below are **IMPLEMENTED** and live as of Faust 0.5.0 —
+> **Status (ApiVersion 6):** the shapes below are **IMPLEMENTED** and live as of Faust 0.6.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
-> positions (#1), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) and
-> `castleresources` (#6) are still proposed (design build order). A `-1` in any numeric field is
-> the "not tracked / none recorded yet" sentinel.
+> positions (#1), resources (#6), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) is
+> still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
+> Faust only if an admin prices it). A `-1` in any numeric field is the "not tracked / none recorded
+> yet" sentinel.
 >
 > 0.4.0–0.5.0 completed the **admin-control gate** (`docs/features/ADMIN_CONTROL.md`): per-feature
 > item-cost is actually consumed, plus window/period time-locks, PvP-availability, live admin
@@ -139,12 +140,21 @@ a server command if the admin prices it:
 ```
 Chest **contents** only for own/clan containers; never enemy (not replicated).
 
-### `castleresources` (#6)
-`.faust api resources <token>` — admin-default, PvP-sensitive.
+### `castleresources` (#6) — IMPLEMENTED
+`.faust api resources <here|nearest|tindex> [page]` — admin-default, PvP-sensitive. Sums every
+container's contents in the castle on the target territory (containers + stations connected to the
+heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinct item type.
 ```
-[FAUST:res] tindex=<int> owner=<name> total=<n> \
-    item=<guid>:<qty> item=<guid>:<qty> …    (or paged [FAUST:res] rows + [FAUST:end])
+[FAUST:res] tindex=<int> owner=<wire_name> steam=<id> containers=<n> totalitems=<n> distinct=<n>
+[FAUST:item] guid=<int> qty=<n> name=<wire_name>
+…rows (qty-descending)…
+[FAUST:end] cmd=resources page=<cur>/<total> count=<distinct>
 ```
+- `containers` = containers that held ≥1 item; `totalitems` = grand total; `distinct` = item types.
+- An **unclaimed** territory (no heart) → `code=notfound`. An empty (claimed) castle → header with
+  zeros + a `count=0` end. `name` is the item's prefab dev-name (BCH may prettify by `guid`).
+- This is the powerful raid-intel feature: defaults to **AdminOnly**, and is a natural one to price
+  (`CostItemGuid`) or PvP-gate (`Availability=PvPOnly`) via the admin-control axes.
 
 ### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`)
 `.faust api stats <kind> [page]` — `<kind>` ∈ `playtime` | `concurrency` (live); `kills` |

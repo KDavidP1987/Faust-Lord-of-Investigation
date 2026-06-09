@@ -119,11 +119,24 @@ effect on server restart.
 | Faust.\<feature\> | Access | varies | `Off` / `AdminOnly` / `Players` — who may run this query |
 | Faust.\<feature\> | Delivery | varies | `ServerMediated` (gateable/chargeable) or `Free` (client-local) |
 | Faust.\<feature\> | CostItemGuid / CostQuantity | `0` / `0` | Item + amount charged per query (0 = free) |
-| Faust.\<feature\> | CooldownSeconds | `0` | Per-player cooldown between runs |
-| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / cost / cooldown |
+| Faust.\<feature\> | CooldownSeconds | `0` | Flat per-player lockout between runs (e.g. pay, then locked 30 min) |
+| Faust.\<feature\> | WindowSeconds / PeriodSeconds / MaxUsesPerPeriod | `0` | A usage window per recurring period — e.g. `600` / `86400` / `1` = a 10-min window, once per day |
+| Faust.\<feature\> | Availability | `Always` | `Always` / `PvEOnly` / `PvPOnly` — gate on the server's game mode |
+| Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / cost / cooldown / window |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
 `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
+
+### Live admin controls (no restart)
+
+Admins can override features at runtime — these persist across restarts:
+
+| Command | What it does |
+|---|---|
+| `.faust admin block <feature\|all> [minutes]` | Disable a feature now; with `minutes`, a countdown that auto-reopens |
+| `.faust admin unblock <feature\|all>` | Clear a block / countdown |
+| `.faust admin schedule <feature\|all> <HH:MM-HH:MM\|clear>` | Only allow use within a daily time window (server local time) |
+| `.faust admin status [feature]` | Show each feature's effective block/schedule state |
 
 ## Feedback & community
 

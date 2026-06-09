@@ -3,6 +3,21 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.4.0 (2026-06-09)
+
+- **Admins now have fine-grained control over every Faust feature:**
+  - **Item cost** is now actually charged from the player's inventory per use (e.g. 100 of an item
+    to run a query) — and never charged if the query finds nothing.
+  - **Time-locks:** a flat cooldown ("then locked 30 min"), or a window-per-period ("a free
+    10-minute window, once per day"). Limits persist across restarts.
+  - **PvP/PvE gating:** a feature can be set usable only on PvP or only on PvE servers.
+  - **Live admin controls (no restart):** `.faust admin block <feature|all> [minutes]` (with an
+    optional countdown), `unblock`, `schedule <feature|all> <HH:MM-HH:MM>` (a daily time window),
+    and `status`.
+- Configure it all per feature in `kdpen.Faust.cfg` (`Availability`, `WindowSeconds`,
+  `PeriodSeconds`, `MaxUsesPerPeriod`, plus the existing cost/cooldown/access).
+- Note: still an early release — these controls haven't been validated across a live session yet.
+
 ## 0.3.0 (2026-06-09)
 
 - **Player stats are now real.** Faust now logs connect/disconnect over time, so `.faust api pinfo`

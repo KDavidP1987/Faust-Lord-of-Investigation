@@ -31,9 +31,10 @@ internal static class HelpCommands
                           "Kills/resource leaderboards are planned.");
                 break;
             case "admin":
-                ctx.Reply("ADMIN: per-feature exposure (Off/AdminOnly/Players), item cost, and cooldown live in " +
-                          "BepInEx/config/kdpen.Faust.cfg. '.faust api version' reports each feature's resolved " +
-                          "access + price.");
+                ctx.Reply("ADMIN: per-feature access/cost/cooldown/window/PvP live in " +
+                          "BepInEx/config/kdpen.Faust.cfg. Live (no restart): '.faust admin block <feature|all> " +
+                          "[minutes]', 'unblock', 'schedule <feature|all> <HH:MM-HH:MM|clear>', 'status'. " +
+                          "'.faust api version' reports each feature's resolved access + price.");
                 break;
             default:
                 ctx.Reply("Faust help — topics: '.faust help players | castles | server | admin'.\n" +

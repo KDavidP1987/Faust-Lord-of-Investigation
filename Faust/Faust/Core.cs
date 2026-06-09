@@ -28,17 +28,23 @@ internal static class Core
     public static PlayerInfoService PlayerInfo { get; private set; }
 
     // ---- Persistence; created at Plugin.Load (no ECS dependency) so it captures connect events
-    //      that can land before game-data init completes. ----
+    //      that can land before game-data init completes, and so admin overrides apply immediately. ----
     public static FaustStore Store { get; private set; }
+    public static UsageService Usage { get; private set; }
+    public static FeatureControlService Control { get; private set; }
 
     public static ManualLogSource Log => Plugin.PluginLog;
     public static bool IsReady { get; private set; }
 
-    /// <summary>Stand up the persistence layer immediately at Plugin.Load (independent of the ECS world).</summary>
+    /// <summary>Stand up the persistence layers immediately at Plugin.Load (independent of the ECS world).</summary>
     internal static void InitPersistence()
     {
         Store = new FaustStore();
         Store.Load();
+        Usage = new UsageService();
+        Usage.Load();
+        Control = new FeatureControlService();
+        Control.Load();
     }
 
     static bool _initInProgress;

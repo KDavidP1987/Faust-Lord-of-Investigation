@@ -65,11 +65,17 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 3):** the shapes below are **IMPLEMENTED** and live as of Faust 0.3.0 —
+> **Status (ApiVersion 4):** the shapes below are **IMPLEMENTED** and live as of Faust 0.4.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
 > positions (#1), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) and
 > `castleresources` (#6) are still proposed (design build order). A `-1` in any numeric field is
 > the "not tracked / none recorded yet" sentinel.
+>
+> 0.4.0 also completed the **admin-control gate** (`docs/features/ADMIN_CONTROL.md`): per-feature
+> item-cost is now actually consumed, plus window/period time-locks, PvP-availability, and live
+> admin block/schedule overrides. These surface to BCH as new `[FAUST:err]` deny codes (§4) — no
+> reply-shape change to the queries themselves. The admin operations (`.faust admin …`) are
+> server-side chat commands, not wire.
 
 ### `castleinfo` (#2) — IMPLEMENTED
 `.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
@@ -168,9 +174,14 @@ Chest **contents** only for own/clan containers; never enemy (not replicated).
 - **Wire-safe labels** — no spaces in token values; use `_`→space on display
   (the Uriel convention). Avoid `=`, `;`, `:` inside values.
 - **Errors:** `[FAUST:err] code=<code> [feature=<f>] [item=<guid>] [qty=<n>] [secs=<n>]`
-  with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound |
-  badtarget`. BCH surfaces a friendly message and (for `cost`/`cooldown`) the
-  price / time left.
+  with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound | badtarget |
+  blocked | schedule | pvp | window`. BCH surfaces a friendly message and the relevant detail:
+  - `cost` → `item` + `qty` (the price). `cooldown` / `window` → `secs` (time until reusable;
+    `window` = a per-period usage allowance is spent, locked until the period rolls over).
+  - `blocked` → `secs` until an admin countdown expires (`secs=-1` = blocked indefinitely until an
+    admin unblocks). `schedule` → `secs` until the next time-of-day window opens.
+  - `pvp` → the feature is disabled for this server's game mode (PvE/PvP-only).
+  These admin-control codes (ApiVersion 4) are additive; an older BCH can show a generic message.
 
 ---
 

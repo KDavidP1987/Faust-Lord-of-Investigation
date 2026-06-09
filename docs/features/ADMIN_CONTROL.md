@@ -14,12 +14,12 @@ these in order; the **first** failing axis denies with a specific `[FAUST:err] c
 
 | # | Axis | Config key(s) | Status | Notes |
 |---|------|---------------|--------|-------|
-| 1 | **Active toggle** | `Enabled` (+ master `Faust.Enabled`) | [partial] | Today `Access=Off` deactivates a feature; promote to an explicit per-feature `Enabled` so on/off is independent of audience. |
+| 1 | **Active toggle** | `Access=Off` (+ master `Faust.Enabled`) | [done] | `Access=Off` deactivates a feature (hard stop even for admins); master `Faust.Enabled` kills the whole mod. |
 | 2 | **Audience** | `Access = AdminOnly \| Players` | [done] | Who may run it. Resolved per requester in the handshake (admin sees `players` where a player sees `admin`). |
-| 3 | **PvP availability** | `Availability = Always \| PvEOnly \| PvPOnly` | [planned] | Gate on the server game mode (`ServerGameSettings.GameModeType`) and/or the requester's PvP-combat state. e.g. enemy-resource intel allowed only on PvP, or position intel disabled on PvP. |
-| 4 | **Item cost** | `CostItemGuid` + `CostQuantity` | [partial] | Verified + advertised today; the actual inventory **consume** is still stubbed. e.g. 100× of an item per use. |
-| 5 | **Rate / time lock** | `CooldownSeconds`, `WindowSeconds`, `PeriodSeconds`, `MaxUsesPerPeriod` | [partial] | Cooldown done. The window/period model (below) is planned — it expresses "once per day for 10 minutes" and "pay, then locked 30 min". |
-| 6 | **Unlock criterion** | `Unlock = None \| BossKill:<guid> \| FinalBoss \| AllBosses \| AllQuests` | [planned] | The feature only opens for a player who has met a progression gate. Per-player progress persists in `FaustStore`. |
+| 3 | **PvP availability** | `Availability = Always \| PvEOnly \| PvPOnly` | [done] | Gated on the server game mode (`ServerGameSettingsSystem.Settings.GameModeType`). e.g. enemy-resource intel `PvPOnly`, position intel `PvEOnly`. Deny code `pvp`. |
+| 4 | **Item cost** | `CostItemGuid` + `CostQuantity` | [done] | Verified up front and **consumed in Commit** after a real result (`InventoryUtilities` + `ServerGameManager.TryRemoveInventoryItem`). e.g. 100× of an item per use. |
+| 5 | **Rate / time lock** | `CooldownSeconds`, `WindowSeconds`, `PeriodSeconds`, `MaxUsesPerPeriod` | [done] | Flat cooldown + the window/period model below, persisted per (player, feature) in `feature_usage.json`. Deny codes `cooldown` / `window`. |
+| 6 | **Unlock criterion** | `Unlock = None \| BossKill:<guid> \| FinalBoss \| AllBosses \| AllQuests` | [planned] | The feature only opens for a player who has met a progression gate. Per-player progress persists in `FaustStore`. (The remaining axis — needs kill/quest hooks.) |
 
 ### Rate / time-lock patterns (axis 5)
 
@@ -93,15 +93,15 @@ to the contract: `blocked`, `schedule`, `locked`, `pvp`, `window`.
 ## 5. Build phases
 
 1. **[done] Foundation** — enabled / access / cooldown / cost-verify (gate + per-feature config + handshake).
-2. **Cost consume** — draw `CostQuantity`×`CostItemGuid` from inventory in `Commit` (the only stubbed foundation axis).
-3. **Usage policy** — `WindowSeconds`/`PeriodSeconds`/`MaxUsesPerPeriod`, persisted per (player, feature).
-4. **PvP availability** — `Availability` axis vs server game mode.
-5. **Runtime control** — `.faust admin block/unblock/schedule/status`, persisted override layer.
-6. **Unlock criteria** — kill/quest hooks + `feature_unlocks.json` + `.faust admin grant/revoke`.
+2. **[done 0.4.0] Cost consume** — draw `CostQuantity`×`CostItemGuid` from inventory in `Commit`.
+3. **[done 0.4.0] Usage policy** — `WindowSeconds`/`PeriodSeconds`/`MaxUsesPerPeriod`, persisted per (player, feature) in `feature_usage.json`.
+4. **[done 0.4.0] PvP availability** — `Availability` axis vs server game mode.
+5. **[done 0.4.0] Runtime control** — `.faust admin block/unblock/schedule/status`, persisted override layer (`feature_control.json`).
+6. **[planned] Unlock criteria** — kill/quest hooks + `feature_unlocks.json` + `.faust admin grant/revoke`.
 
-Phases 2–6 are independent and can ship in any order; each extends `FaustAccessGate` by one axis
-and adds the relevant error code. The handshake (`.faust api version`) grows a token per axis so
-BCH can show the full availability/price/cooldown/lock state without a round-trip (bump ApiVersion).
+Phase 6 is the remaining axis; it extends `FaustAccessGate` with a `locked` code and needs a
+death/quest hook. A future ApiVersion bump can also grow the handshake to advertise the
+availability/window/lock state per feature so BCH greys buttons without waiting for a deny.
 
 ## 6. Persistence note
 

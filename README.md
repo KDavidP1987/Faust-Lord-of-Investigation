@@ -10,17 +10,18 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.3.0)
+## ⚠ Status: pre-1.0 — early data release (0.4.0)
 
-Faust is **brand-new**, but moving fast. Live today: the per-feature permission/cost gate, the
-BloodCraftHub handshake, and the investigation queries — **castle/plot info, plot availability,
-player info, and online positions are confirmed working on a live server**. 0.3.0 adds the
-`FaustStore` persistence layer (connect/disconnect logging → real playtime/frequency/peak-hour in
-`pinfo`, plus a `stats` playtime leaderboard and concurrency series); the persistence path itself
-is pending a live reconnect-cycle test. The broader **administrative control surface** (PvP
-availability, time-locked/windowed access, unlock criteria, and runtime block/schedule commands)
-is specced in [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) and is the next
-major phase.
+Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
+queries — **castle/plot info, plot availability, player info, online positions**. Added since:
+the `FaustStore` persistence layer (real playtime/frequency/peak-hour in `pinfo`, plus a `stats`
+playtime leaderboard and concurrency series), and the **administrative control surface** — item
+cost (now actually consumed), flat cooldowns and window-per-period time-locks, PvP/PvE gating, and
+live `.faust admin block/schedule` overrides (full spec:
+[`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md)). The persistence and
+admin-control paths compile clean but are **pending a live in-game pass**. Remaining: unlock
+criteria (earn a feature by defeating a boss / finishing the game) and the `objectscan` /
+`castleresources` queries.
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.

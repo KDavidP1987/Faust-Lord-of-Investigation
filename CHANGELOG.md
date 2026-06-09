@@ -7,6 +7,46 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.4.0] - 2026-06-09
+
+### Added — admin control surface: cost consume, time-locks, PvP gating, runtime block/schedule
+
+Completes five of the six `ADMIN_CONTROL.md` axes (all but unlock-criteria). **ApiVersion → 4**;
+no query reply-shape changed — the controls surface to BCH as new `[FAUST:err]` deny codes
+(`blocked`, `schedule`, `pvp`, `window`).
+
+- **Item cost is now actually consumed** — `FaustAccessGate.Commit` draws
+  `CostQuantity`×`CostItemGuid` from the requester's inventory after a real result
+  (`InventoryUtilities.TryGetInventoryEntity` + `ServerGameManager.TryRemoveInventoryItem`; the
+  proven Uriel/KindredLogistics pattern). Verified up front, never charged on an empty/notfound.
+- **Usage rate/time-locks** (`UsageService`, `feature_usage.json`) — per (player, feature):
+  - `CooldownSeconds` — flat lockout ("pay 100 of an item, then locked 30 min").
+  - `WindowSeconds` + `PeriodSeconds` + `MaxUsesPerPeriod` — a burst **window** that opens on first
+    use and locks for the rest of a recurring **period** ("free, a 10-minute window once per day" =
+    `WindowSeconds=600`, `PeriodSeconds=86400`, `MaxUsesPerPeriod=1`). State persists across
+    restarts, so a daily window doesn't reset on a reboot. Deny codes `cooldown` / `window` carry
+    `secs` remaining.
+- **PvP availability** (`Availability = Always | PvEOnly | PvPOnly`) — gates a feature on the
+  server's `GameModeType` (e.g. enemy-resource intel `PvPOnly`). Deny code `pvp`.
+- **Runtime operational control** (`FeatureControlService`, `feature_control.json`) — live admin
+  overrides on top of the .cfg, persisted across restarts:
+  - **`.faust admin block <feature|all> [minutes]`** — block now, optionally as a countdown.
+  - **`.faust admin unblock <feature|all>`**.
+  - **`.faust admin schedule <feature|all> <HH:MM-HH:MM|clear>`** — a server-local time-of-day window.
+  - **`.faust admin status [feature]`** — effective control state per feature.
+  Deny codes `blocked` (with `secs` left; `-1` = indefinite) and `schedule` (with `secs` to next open).
+- **Gate evaluation order** (`ADMIN_CONTROL.md §4`): master-enabled → runtime block → schedule →
+  feature-enabled → access → PvP → usage (cooldown/window/period) → cost. Admins with
+  `AdminsExempt=true` skip access/PvP/usage/cost, but not a master-off, a deactivated feature, or
+  an operational block/schedule.
+- New per-feature config keys: `Availability`, `WindowSeconds`, `PeriodSeconds`, `MaxUsesPerPeriod`.
+- Contract + `ADMIN_CONTROL.md` updated (axes 1–5 marked done; unlock-criteria #6 remains).
+
+### Notes
+
+- Compiles clean (0 warnings). The cost/usage/control paths are **not yet validated on a live
+  server** — needs an in-game pass (charge an item, hit a cooldown/window, block + reopen).
+
 ## [0.3.0] - 2026-06-09
 
 ### Added — persistence (FaustStore): real player playtime/frequency + server stats

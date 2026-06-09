@@ -12,6 +12,9 @@ internal enum AccessLevel { Off, AdminOnly, Players }
 /// </summary>
 internal enum DeliveryMode { ServerMediated, Free }
 
+/// <summary>Whether a feature is usable given the server's game mode (ADMIN_CONTROL §1 axis 3).</summary>
+internal enum PvpAvailability { Always, PvEOnly, PvPOnly }
+
 /// <summary>
 /// The per-feature gateable unit: its resolved access, delivery, item cost, cooldown,
 /// and whether admins skip access/cost. Reads live config so admins can retune without
@@ -26,6 +29,11 @@ internal sealed class FeatureConfig
     public ConfigEntry<int> CostQuantity { get; init; }
     public ConfigEntry<int> CooldownSeconds { get; init; }
     public ConfigEntry<bool> AdminsExempt { get; init; }
+    // ---- ADMIN_CONTROL axes 3 + 5 ----
+    public ConfigEntry<string> AvailabilityRaw { get; init; }
+    public ConfigEntry<int> WindowSeconds { get; init; }
+    public ConfigEntry<int> PeriodSeconds { get; init; }
+    public ConfigEntry<int> MaxUsesPerPeriod { get; init; }
 
     public FeatureConfig(string key) { Key = key; }
 
@@ -39,7 +47,17 @@ internal sealed class FeatureConfig
     public DeliveryMode Delivery =>
         DeliveryRaw.Value == "Free" ? DeliveryMode.Free : DeliveryMode.ServerMediated;
 
+    public PvpAvailability Availability => AvailabilityRaw.Value switch
+    {
+        "PvEOnly" => PvpAvailability.PvEOnly,
+        "PvPOnly" => PvpAvailability.PvPOnly,
+        _ => PvpAvailability.Always,
+    };
+
     public bool HasCost => CostItemGuid.Value != 0 && CostQuantity.Value > 0;
+
+    /// <summary>True if a window/period rate-limit (not just a flat cooldown) is configured.</summary>
+    public bool HasWindowPolicy => PeriodSeconds.Value > 0;
 }
 
 /// <summary>
@@ -109,9 +127,24 @@ internal static class Settings
             CostQuantity = config.Bind(section, "CostQuantity", 0,
                 "How many of CostItemGuid to charge per query. Ignored when CostItemGuid = 0."),
             CooldownSeconds = config.Bind(section, "CooldownSeconds", 0,
-                "Per-player cooldown between runs of this query, in seconds. 0 = no cooldown."),
+                "Per-player flat lockout between runs of this query, in seconds. 0 = no cooldown. " +
+                "(Use this for 'pay a cost, then locked N seconds'. For 'open a window once per period', " +
+                "use WindowSeconds + PeriodSeconds below.)"),
             AdminsExempt = config.Bind(section, "AdminsExempt", true,
-                "When true, admins skip this feature's access check, cost, and cooldown."),
+                "When true, admins skip this feature's access check, cost, cooldown, window/period, and PvP gate."),
+            AvailabilityRaw = config.Bind(section, "Availability", PvpAvailability.Always.ToString(),
+                "Always | PvEOnly | PvPOnly. Gate the feature on the server's game mode (e.g. enemy-resource " +
+                "intel PvPOnly, or position intel PvEOnly). Always = no game-mode restriction."),
+            WindowSeconds = config.Bind(section, "WindowSeconds", 0,
+                "Rate-limit: once the feature is first used in a period, it stays OPEN for this many seconds " +
+                "(repeated uses within the window are free). 0 = no window (each use is discrete). " +
+                "Example: 600 with PeriodSeconds=86400 = 'a 10-minute window, once per day'."),
+            PeriodSeconds = config.Bind(section, "PeriodSeconds", 0,
+                "Rate-limit recurrence in seconds (e.g. 86400 = daily). 0 = no period (only CooldownSeconds " +
+                "applies). After MaxUsesPerPeriod uses/windows in a period, the feature locks until the period rolls over."),
+            MaxUsesPerPeriod = config.Bind(section, "MaxUsesPerPeriod", 0,
+                "How many uses (or window-opens, if WindowSeconds>0) are allowed per period. 0 = unlimited within " +
+                "the period. Example: 1 with PeriodSeconds=86400 = once per day."),
         };
         _features[key] = fc;
     }

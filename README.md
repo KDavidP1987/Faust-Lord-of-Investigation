@@ -10,7 +10,7 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.10.0)
+## ⚠ Status: pre-1.0 — early data release (0.11.0)
 
 Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
 queries — **castle/plot info, plot availability, player info, online positions**. Added since:
@@ -22,8 +22,10 @@ overrides, **unlock criteria** (a feature opens only after defeating a configure
 or an admin grant), and a **proximity requirement** (usable only within range of a configured
 object); the **full server castle map** (`castles`) + position **regions** (0.8.0); and a **decay
 watch** (`decay`, claimed castles by soonest-to-decay) plus **passive-collection controls** (0.9.0 —
-admins bound or switch off what Faust collects in the background, for performance); and **activity
-analytics** (0.10.0 — chart-ready `stats hours`/`daily`/`newplayers`/`sessions` over the session log).
+admins bound or switch off what Faust collects in the background, for performance); **activity
+analytics** (0.10.0 — chart-ready `stats hours`/`daily`/`newplayers`/`sessions` over the session log);
+and **admin data management** (0.11.0 — `.faust admin data status/clear/wipe` + a `DataNamespace` for
+per-world separation, since Faust's data is server-scoped and survives a world wipe by default).
 0.6.0 added
 **`castleresources` (#6)**. The persistence, admin-control, and resource paths compile clean but are
 **pending a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and
@@ -63,6 +65,13 @@ Admins control Faust on **two independent axes**:
    and the `[Faust.Collection]` config lets admins bound it or switch it off entirely — so Faust never
    becomes a performance concern, regardless of how widely its data is exposed. (See
    [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §10.)
+3. **Data lifecycle** — Faust's stored data lives in `BepInEx/config/Faust/` (server-scoped, *not* in
+   the world save), so it **persists across a world wipe** — intentional, since the same players return
+   and their history stays relevant. Admins manage it explicitly with **`.faust admin data`**:
+   `status` (footprint), `clear <days>` (prune old activity on demand), and
+   `wipe <activity|unlocks|usage|all> confirm` (reset a store — `unlocks` is the usual fresh-world
+   reset). Set `DataNamespace` to keep each world's data fully separate instead. `SessionRetentionDays`
+   auto-trims old activity on very busy / long-lived servers (default keeps everything).
 
 ## Features (see [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md))
 

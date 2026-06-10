@@ -170,7 +170,12 @@ session/population history accumulates over time, and you can bound or switch it
 | Faust.Collection | SessionTracking | `true` | Log connect/disconnect over time. **Off** ⇒ no history: playtime / sessions / frequency / peak-hour and the playtime leaderboard report "not tracked" |
 | Faust.Collection | ConcurrencySampling | `true` | Sample the online-player count (powers the population graph). Independent of SessionTracking |
 | Faust.Collection | MaxConcurrencyPoints | `4000` | Cap on stored population samples (oldest trimmed); bounds memory + file size. `0` disables sampling |
-| Faust.Collection | SessionRetentionDays | `0` | Prune sessions older than N days (`0` = keep forever) — bound long-term growth |
+| Faust.Collection | SessionRetentionDays | `0` | Auto-prune sessions older than N days (`0` = keep forever) — bound long-term growth on busy/long-lived servers |
+| Faust.Collection | DataNamespace | *(empty)* | Empty = one shared dataset (kept across world wipes). Set a per-world name (e.g. `season3`) to keep each world's data separate |
+
+Faust's data is stored in `BepInEx/config/Faust/` — **on the server, not in the world save — so it
+survives a world wipe.** That's deliberate: the same players return, so their playtime/stats stay
+relevant. When you *do* want to reset it (or it grows too large), use the **data commands** below.
 
 ### Live admin controls (no restart)
 
@@ -184,6 +189,9 @@ Admins can override features at runtime — these persist across restarts:
 | `.faust admin status [feature]` | Show each feature's effective block/schedule state |
 | `.faust admin grant\|revoke <player> <feature>` | Hand-unlock / re-lock a feature for a player (overrides its `Unlock` criterion) |
 | `.faust admin unlocks <player>` | Show a player's V-blood defeats + granted features |
+| `.faust admin data status` | Footprint of collected data (counts, oldest record, disk size, namespace, retention) |
+| `.faust admin data clear <days>` | Prune activity (sessions + population) older than N days, on demand |
+| `.faust admin data wipe <activity\|unlocks\|usage\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts (`confirm` required) |
 
 A feature can also require a **progression unlock** before players may use it — set
 `Unlock = FinalBoss` (defeat Dracula) or `Unlock = BossKill:<vbloodGuid>` per feature in the config.

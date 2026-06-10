@@ -124,6 +124,7 @@ internal static class Settings
     public static ConfigEntry<bool> ConcurrencySampling { get; private set; }
     public static ConfigEntry<int> MaxConcurrencyPoints { get; private set; }
     public static ConfigEntry<int> SessionRetentionDays { get; private set; }
+    public static ConfigEntry<string> DataNamespace { get; private set; }
 
     static readonly Dictionary<string, FeatureConfig> _features = new();
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
@@ -163,8 +164,19 @@ internal static class Settings
             "sessions.json size. Lower it on a busy server to cap growth; 0 disables sampling entirely.");
         SessionRetentionDays = config.Bind(
             "Faust.Collection", "SessionRetentionDays", 0,
-            "Prune session records older than this many days (checked on connect and at load). 0 = keep " +
-            "forever. Set e.g. 90 to bound long-term growth and keep playtime/frequency windows recent.");
+            "Auto-prune session records older than this many days (checked on every connect and at load). " +
+            "0 = keep forever (the default — most servers want full history, and it survives a world wipe " +
+            "since the same players return). Set e.g. 30/60/90 to bound long-term growth on a very busy or " +
+            "long-lived server and keep playtime/frequency windows recent. For a one-off cleanup without " +
+            "changing this, use '.faust admin data clear <days>'.");
+        DataNamespace = config.Bind(
+            "Faust.Collection", "DataNamespace", "",
+            "Optional label that scopes Faust's stored data to a subfolder (BepInEx/config/Faust/<name>/). " +
+            "Leave EMPTY (default) to keep ONE shared dataset for the server — the usual choice, since after " +
+            "a world wipe the same players return and their activity history stays relevant. Set a distinct " +
+            "name per world (e.g. 'season3') ONLY if you want each world's data kept fully separate; changing " +
+            "it starts a fresh dataset (the previous one is left on disk under its own name, not deleted). " +
+            "To reset data instead of separating it, use '.faust admin data wipe …'.");
 
         // Per-feature blocks. Defaults follow design §4/§5: sensitive intel (positions, enemy
         // resources, other players' info) defaults to AdminOnly; benign/own-data is Players;

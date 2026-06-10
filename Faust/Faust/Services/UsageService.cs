@@ -33,7 +33,7 @@ internal sealed class UsageService
 
     readonly Dictionary<string, Rec> _usage = new();
 
-    static string SaveDir => Path.Combine(BepInEx.Paths.ConfigPath, "Faust");
+    static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "feature_usage.json");
     static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     static string KeyOf(ulong steam, string feature) => $"{steam}|{feature}";
@@ -123,5 +123,19 @@ internal sealed class UsageService
             else r.UsesThisPeriod++;
         }
         SaveSync();
+    }
+
+    // ---- admin data management ----
+
+    /// <summary>Tracked (player, feature) cooldown/window pairs — for the data-status readout.</summary>
+    public int UsageCount => _usage.Count;
+
+    /// <summary>Clear all cooldown/window usage state (every player's locks reset). Returns pairs erased.</summary>
+    public int WipeAll()
+    {
+        int n = _usage.Count;
+        _usage.Clear();
+        SaveSync();
+        return n;
     }
 }

@@ -31,7 +31,7 @@ internal sealed class FeatureControlService
 
     readonly Dictionary<string, Rec> _control = new();
 
-    static string SaveDir => Path.Combine(BepInEx.Paths.ConfigPath, "Faust");
+    static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "feature_control.json");
     static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     static int NowMinuteOfDay => DateTime.Now.Hour * 60 + DateTime.Now.Minute;

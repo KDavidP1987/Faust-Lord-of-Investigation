@@ -3,6 +3,21 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.11.0 (2026-06-10)
+
+- **New: admin data controls.** Faust's history (playtime/sessions, population, unlock progress) lives on
+  the server and **survives a world wipe** — on purpose, since the same players come back and their stats
+  stay relevant. You now control it directly:
+  - **`.faust admin data status`** — see how much Faust has stored (counts, age, disk size).
+  - **`.faust admin data clear <days>`** — drop activity older than N days on demand.
+  - **`.faust admin data wipe <activity|unlocks|usage|all> confirm`** — reset a store. On a fresh world,
+    `unlocks` resets boss-kill-gated features; `activity` resets playtime/charts. The `confirm` word is
+    required so it can't fire by accident.
+- **New config `DataNamespace`** — leave empty (default) for one shared dataset, or set a name per world
+  to keep each world's data separate.
+- Clearer guidance on `SessionRetentionDays` (auto-trim old data on big/long-running servers).
+- Note: still an early release — these haven't been validated in a live session yet.
+
 ## 0.10.0 (2026-06-10)
 
 - **New: activity charts for admins** — four new `.faust api stats` views that turn Faust's session

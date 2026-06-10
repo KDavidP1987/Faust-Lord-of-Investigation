@@ -30,7 +30,7 @@ internal sealed class UnlockService
     readonly Dictionary<ulong, HashSet<string>> _grants = new();
     bool _tracks;
 
-    static string SaveDir => Path.Combine(BepInEx.Paths.ConfigPath, "Faust");
+    static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "feature_unlocks.json");
 
     /// <summary>True if ANY feature has an Unlock criterion configured (cheap gate for the death hook).</summary>
@@ -136,5 +136,28 @@ internal sealed class UnlockService
         int defeats = _defeated.TryGetValue(steam, out var d) ? d.Count : 0;
         var grants = _grants.TryGetValue(steam, out var g) ? string.Join(", ", g) : "(none)";
         return $"V-blood defeats: {defeats}; granted features: {grants}";
+    }
+
+    // ---- admin data management ----
+
+    /// <summary>Footprint for the data-status readout: players tracked, total defeats, total grants.</summary>
+    public (int players, int defeats, int grants) GetUnlockStats()
+    {
+        int defeats = 0; foreach (var s in _defeated.Values) defeats += s.Count;
+        int grants = 0; foreach (var s in _grants.Values) grants += s.Count;
+        var players = new HashSet<ulong>(_defeated.Keys);
+        foreach (var k in _grants.Keys) players.Add(k);
+        return (players.Count, defeats, grants);
+    }
+
+    /// <summary>Erase ALL unlock progress (every player's V-blood defeats AND admin grants) — the
+    /// world-wipe reset for progression-gated features. Returns the number of players cleared.</summary>
+    public int WipeAll()
+    {
+        int players = GetUnlockStats().players;
+        _defeated.Clear();
+        _grants.Clear();
+        SaveSync();
+        return players;
     }
 }

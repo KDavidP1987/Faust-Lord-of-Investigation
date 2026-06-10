@@ -39,7 +39,9 @@ internal static class HelpCommands
                 ctx.Reply("ADMIN: per-feature access/cost/cooldown/window/PvP/unlock live in " +
                           "BepInEx/config/kdpen.Faust.cfg. Live (no restart): '.faust admin block <feature|all> " +
                           "[minutes]', 'unblock', 'schedule <feature|all> <HH:MM-HH:MM|clear>', 'status', " +
-                          "'grant|revoke <player> <feature>', 'unlocks <player>'. " +
+                          "'grant|revoke <player> <feature>', 'unlocks <player>'. Collected data: " +
+                          "'.faust admin data status', 'data clear <days>', 'data wipe <activity|unlocks|usage|all> " +
+                          "confirm' (data survives a world wipe by default — reset it here when you want to). " +
                           "'.faust api version' reports each feature's resolved access + price.");
                 break;
             default:

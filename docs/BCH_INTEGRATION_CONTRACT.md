@@ -82,7 +82,10 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 > configured V Blood / Dracula, or an admin grants it), and a **proximity requirement** (usable only
 > within range of a configured object). These surface to BCH as new `[FAUST:err]` deny codes (§4) —
 > no reply-shape change to the queries themselves. The admin operations (`.faust admin …`, incl.
-> `grant`/`revoke`) are server-side chat commands, not wire.
+> `grant`/`revoke` and the `data status`/`clear`/`wipe` data-management commands) are server-side chat
+> commands, not wire — they don't affect the `[FAUST:*]` surface or ApiVersion. Note Faust's collected
+> data is server-scoped (`BepInEx/config/Faust/`) and survives a world wipe; admins reset it explicitly
+> via `.faust admin data wipe …` (so BCH/Raphael analytics may span worlds unless an admin wiped).
 
 ### `castleinfo` (#2) — IMPLEMENTED
 `.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
@@ -274,6 +277,15 @@ server-wide or for one player. Single line, no trailer:
 - **`peakhour` (pinfo) and `hours` (stats) measure different things.** `peakhour` is the hour with the
   most **logins** (by connect time); `hours` is accumulated **playtime minutes** per hour (sessions
   sliced at hour boundaries). They can legitimately disagree.
+- **Activity data is server-lifetime, not world-lifetime — it can span multiple worlds.** Faust's
+  session log lives in `BepInEx/config/Faust/` (server-scoped, *not* in the V Rising world save), so it
+  **survives a world wipe** — by design, since the same players return and their history stays relevant.
+  On a server that has wiped/reset its world, `playtime` / `daily` / `firstseen` / `newplayers` may
+  therefore include **pre-wipe** history. There is **no wire signal** for a wipe (ApiVersion unaffected);
+  treat all series as accumulated over the server's lifetime. An admin can deliberately reset them with
+  `.faust admin data wipe activity` (or separate worlds up front with the `DataNamespace` config) — those
+  are server-side admin actions, nothing for BCH/Raphael to implement, just to be aware of when labeling
+  charts (e.g. "since Faust install / last reset," not "this world").
 
 ---
 

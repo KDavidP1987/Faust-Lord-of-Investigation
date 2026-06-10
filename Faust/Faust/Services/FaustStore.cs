@@ -56,7 +56,7 @@ internal sealed class FaustStore
     readonly Dictionary<ulong, string> _names = new();
     readonly HashSet<ulong> _online = new();
 
-    static string SaveDir => Path.Combine(BepInEx.Paths.ConfigPath, "Faust");
+    static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "sessions.json");
 
     static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -385,4 +385,44 @@ internal sealed class FaustStore
     }
 
     public int OnlineCount => _online.Count;
+
+    // ---- admin data management (manual status / clear / wipe; design: collection control §10) ----
+
+    /// <summary>Footprint of the collected activity, for the <c>.faust admin data status</c> readout.</summary>
+    public (int sessions, int concurrency, int names, long oldestConnectUnix) GetStorageStats()
+    {
+        long oldest = 0;
+        foreach (var s in _sessions) if (oldest == 0 || s.Connect < oldest) oldest = s.Connect;
+        return (_sessions.Count, _concurrency.Count, _names.Count, oldest);
+    }
+
+    /// <summary>Prune CLOSED sessions and concurrency points older than <paramref name="days"/> days
+    /// on demand (independent of the SessionRetentionDays config). Open sessions are never dropped.
+    /// Returns the number of records removed.</summary>
+    public int ClearOlderThan(int days)
+    {
+        if (days <= 0) return 0;
+        long cutoff = Now - (long)days * 86400L;
+        int before = _sessions.Count + _concurrency.Count;
+        _sessions.RemoveAll(s => s.Disconnect != 0 && s.Disconnect < cutoff);
+        _concurrency.RemoveAll(c => c.T < cutoff);
+        int removed = before - (_sessions.Count + _concurrency.Count);
+        if (removed > 0) SaveSync();
+        return removed;
+    }
+
+    /// <summary>Erase ALL collected activity (sessions, concurrency, name cache). Players currently
+    /// online get a fresh session re-opened so live tracking continues seamlessly. Returns records erased.</summary>
+    public int WipeAll()
+    {
+        int count = _sessions.Count + _concurrency.Count + _names.Count;
+        _sessions.Clear();
+        _concurrency.Clear();
+        _names.Clear();
+        if (Settings.SessionTracking.Value)
+            foreach (var steam in _online)
+                _sessions.Add(new Session { Steam = steam, Connect = Now, Disconnect = 0 });
+        SaveSync();
+        return count;
+    }
 }

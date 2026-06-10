@@ -7,6 +7,32 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.11.0] - 2026-06-10
+
+### Added — admin data management (`.faust admin data …`) + world-wipe story
+
+Faust's collected data (the session log / playtime, concurrency, and the unlock-progress + usage state)
+persists to `BepInEx/config/Faust/` — **server-scoped, and it survives a V Rising world wipe** (the same
+folder isn't part of the world save). That's intentional: after a wipe the same players return, so their
+activity history stays relevant. But admins now have explicit control to inspect, prune, separate, or
+reset it. No wire change → **ApiVersion stays 10** (these are server-side `.faust admin` chat commands).
+
+- **`.faust admin data status`** — footprint readout: session / concurrency / name counts, oldest record,
+  on-disk size, the active data namespace, retention setting, collection switches, and unlock/usage counts.
+- **`.faust admin data clear <days>`** — on-demand prune of activity (sessions + concurrency) older than N
+  days, without changing the `SessionRetentionDays` config. Open sessions are never dropped.
+- **`.faust admin data wipe <activity|unlocks|usage|all> confirm`** — erase a store. Requires a literal
+  `confirm` token (a no-confirm call previews exactly what would be erased). `unlocks` is the typical
+  fresh-world reset (clears V-blood-gated progression); `activity` resets playtime/charts; `all` does both
+  plus usage locks. Wiping `activity` re-opens a live session for anyone currently online so tracking
+  continues seamlessly.
+- **New config `Faust.Collection.DataNamespace`** (default empty = one shared dataset). Set a per-world
+  label (e.g. `season3`) ONLY if you want each world's data kept fully separate; changing it starts a
+  fresh dataset and leaves the previous one on disk. All four stores now resolve their path through a
+  single `FaustPaths.DataDir`.
+- `SessionRetentionDays` documentation clarified (auto-prune for very busy / long-lived servers; default
+  keeps everything; `.faust admin data clear` is the manual alternative).
+
 ## [0.10.0] - 2026-06-10
 
 ### Added — activity analytics for admin charts (#8)

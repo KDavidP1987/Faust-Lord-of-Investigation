@@ -109,10 +109,21 @@ internal static class Settings
     public const string CastleResources = "castleresources"; // #6 enemy castle resource totals (PvP)
     public const string Stats = "stats";                     // #8 server stats / leaderboards
     public const string AllCastles = "allcastles";           // full server castle map (every territory)
+    public const string DecayWatch = "decaywatch";           // claimed castles sorted by soonest-to-decay
 
     public static ConfigEntry<bool> Enabled { get; private set; }
     public static ConfigEntry<bool> AuditQueries { get; private set; }
     public static ConfigEntry<bool> VerboseLogging { get; private set; }
+
+    // ---- Passive collection controls (the "what does Faust collect" axis; design §10) ----
+    // These govern Faust's BACKGROUND data collection, independent of who can READ a feature.
+    // The admin team tunes these to bound CPU/memory/disk so Faust never costs server performance:
+    // most intel is read live on-demand (no passive cost), but the time-series store (sessions +
+    // concurrency, powering pinfo/#3 and stats/#8) is the one subsystem that accumulates over time.
+    public static ConfigEntry<bool> SessionTracking { get; private set; }
+    public static ConfigEntry<bool> ConcurrencySampling { get; private set; }
+    public static ConfigEntry<int> MaxConcurrencyPoints { get; private set; }
+    public static ConfigEntry<int> SessionRetentionDays { get; private set; }
 
     static readonly Dictionary<string, FeatureConfig> _features = new();
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
@@ -132,6 +143,29 @@ internal static class Settings
             "Diagnostics", "VerboseLogging", false,
             "Emit detailed per-query log lines (useful when testing; noisy in production).");
 
+        // Passive-collection controls (design §10). Faust's queries are almost all read-on-demand
+        // (zero passive cost); only the session/concurrency time-series accumulates. Admins own its
+        // footprint here so Faust never becomes a performance concern, independent of feature access.
+        SessionTracking = config.Bind(
+            "Faust.Collection", "SessionTracking", true,
+            "Master switch for PASSIVE session logging (connect/disconnect over time). When false, Faust " +
+            "records no sessions: playerinfo's playtime/sessions/frequency/peak-hour and the stats playtime " +
+            "leaderboard return the -1 'not tracked' sentinel, and nothing is written to sessions.json. " +
+            "Turn off if you want Faust purely as a live-query tool with no historical collection.");
+        ConcurrencySampling = config.Bind(
+            "Faust.Collection", "ConcurrencySampling", true,
+            "Whether to sample the online-player count on each connect/disconnect (the concurrency series " +
+            "behind stats concurrency / population graphs). When false, no concurrency points are stored. " +
+            "Independent of SessionTracking (you can keep playtime history without the population series).");
+        MaxConcurrencyPoints = config.Bind(
+            "Faust.Collection", "MaxConcurrencyPoints", 4000,
+            "Hard cap on retained concurrency samples (oldest trimmed past this). Bounds memory and the " +
+            "sessions.json size. Lower it on a busy server to cap growth; 0 disables sampling entirely.");
+        SessionRetentionDays = config.Bind(
+            "Faust.Collection", "SessionRetentionDays", 0,
+            "Prune session records older than this many days (checked on connect and at load). 0 = keep " +
+            "forever. Set e.g. 90 to bound long-term growth and keep playtime/frequency windows recent.");
+
         // Per-feature blocks. Defaults follow design §4/§5: sensitive intel (positions, enemy
         // resources, other players' info) defaults to AdminOnly; benign/own-data is Players;
         // every feature starts cost-free and admin-exempt so a fresh install is usable.
@@ -143,6 +177,7 @@ internal static class Settings
         Bind(config, CastleResources, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Stats, AccessLevel.Players, DeliveryMode.ServerMediated);
         Bind(config, AllCastles, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
+        Bind(config, DecayWatch, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
     }
 
     static void Bind(ConfigFile config, string key, AccessLevel defaultAccess, DeliveryMode defaultDelivery)

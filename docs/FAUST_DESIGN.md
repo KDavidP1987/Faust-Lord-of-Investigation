@@ -185,3 +185,91 @@ the foundation itself doesn't need it.
   PvE) before shipping; these are balance decisions, not just config.
 - **Cross-mod progress (#3)** — "progress in game" likely means Bloodcraft data;
   decide whether Faust reads it or BCH composes Faust + Bloodcraft client-side.
+
+---
+
+## 9. Opportunity catalog (post-0.8 audit)
+
+A 2026-06-10 audit of the V Rising server-side data surface (cross-referenced against
+KindredCommands + Bloodcraft) against Faust's shipped features. The **control engine is complete**
+(§3 + ADMIN_CONTROL's seven axes); what's thin is the **catalog of information** flowing through it.
+Everything below is **game-native** (any server mod can read it from ECS) — Bloodcraft-specific
+systems (levels, classes, professions, familiars, legacies) are deliberately **out of scope** unless
+a future cross-mod integration is chosen.
+
+Each item carries a **suggested default access** and the **knob** that turns "too much information"
+into a balanced tool — the configurability story is the answer to every sensitivity concern (a
+sensitive feature ships AdminOnly; opening it to players is a deliberate, per-server balance choice,
+optionally limited by cost / cooldown / window / unlock / proximity).
+
+### Tier A — Administrative / moderation (broadest access; the admin team's domain)
+- **Decay watch** *(SHIPPED 0.9.0 — `decay`)* — claimed castles by soonest-to-decay + owner
+  last-online. Abandoned-plot cleanup. AdminOnly. **On-demand, zero passive cost.**
+- **Castle/clan footprint** — castle count + total territory blocks per player/clan (land-hogging).
+  AdminOnly. On-demand (`CastleTerritory` + `UserOwner`/`ClanTeam`).
+- **Clan roster (`claninfo`)** — name, members, roles, allies (`ClanTeam`, `ClanMemberStatus`,
+  `TeamAllies`). AdminOnly default; Players opt-in on social servers.
+- **New-player / churn / retention report** — from the existing session log (first-seen, who hasn't
+  returned). AdminOnly. **Reads existing collection — no new passive cost.**
+
+### Tier B — Player gameplay tools (deliberate, gated value)
+- **Server status (`serverinfo`)** — server time, day/night, blood-moon, game mode (PvP/PvE), online
+  count, decay-rate. Low sensitivity → a natural **free, player-facing** feature.
+- **Boss/progression lookup** — V Bloods a player has defeated + max level (`UnlockedProgressionElement`;
+  the death hook already detects boss kills for unlocks). Self = benign; others = AdminOnly.
+- **Own/clan castle decay timer** — the Tier-A decay watch scoped to the caller's own hearts. Players,
+  free; pure QoL.
+
+### Tier C — PvP strategic intel (high value, high sensitivity — the cost/time/unlock cases)
+- **Kills/deaths leaderboard + K/D (`stats kills`)** — needs a `DeathEventListenerSystem` kill counter
+  feeding FaustStore (the patch already exists for unlock detection; extend it). **This is a new
+  PASSIVE collector → must ship with a collection toggle (see §10).** Players as a board.
+- **Soul-shard / relic tracker** — who holds / where dropped (`Relic`, `SoulshardService`). The poster
+  child for "configurable, not an exploit": AdminOnly, or steep item cost + long cooldown + PvPOnly.
+- **Enemy power read** — target gear-score / blood quality. AdminOnly, or PvP-priced.
+- **Live combat board** — who's in PvP combat right now (`Buff_InCombat_PvPVampire`). AdminOnly / PvPOnly.
+
+### Tier D — Faust's persistence superpower (only Faust can answer)
+The game forgets everything but last-login; lean into time-series derived from the session log:
+- **Concurrency heatmap by hour / day-of-week** — aggregate the concurrency series Faust already keeps.
+  Players (event scheduling / "when is it busy"). **Reads existing collection.**
+- **Per-player play-pattern** — usual days/hours online. AdminOnly for others (moderation / raid-window
+  awareness). Reads existing collection.
+
+**Recommended next after 0.9.0:** the **kill-tracking hook → `stats kills`** (Tier C) — it reuses the
+existing death patch, lights up the already-promised leaderboard, and is the first feature to exercise
+the §10 collection controls (it's a *new passive collector*, so it must be admin-toggleable).
+
+---
+
+## 10. Collection / performance controls (the "what does Faust collect" axis)
+
+Distinct from **who may READ** a feature (access/cost/etc., §3–§5), the admin team also controls
+**what Faust passively COLLECTS in the background** — so Faust never becomes a server-performance
+concern, independent of how widely its data is exposed.
+
+**Key distinction:**
+- **On-demand queries (the vast majority)** — castleinfo, plots, castles, decay, positions, resources,
+  pinfo's live fields, claninfo, footprint, serverinfo, boss-lookup — read live ECS state when asked.
+  They cost **nothing** when idle; no collection control is needed (or possible).
+- **Passive collectors (the few)** — the session/time-series store (§6) is the one subsystem that
+  *accumulates over time*: connect/disconnect logging + concurrency sampling (and, when built, the
+  kill counter). These are the only things that consume CPU/memory/disk while nobody is querying, so
+  they are the things admins must be able to **bound or switch off**.
+
+**The `[Faust.Collection]` config block (0.9.0):**
+- `SessionTracking` *(bool, default true)* — master switch for connect/disconnect session logging.
+  Off ⇒ no sessions persisted; pinfo's playtime/sessions/frequency/peak-hour and the playtime
+  leaderboard return the `-1` "not tracked" sentinel. (Faust becomes a pure live-query tool.)
+- `ConcurrencySampling` *(bool, default true)* — whether to sample the online count on each
+  connect/disconnect (the population series behind `stats concurrency`). Independent of session logging.
+- `MaxConcurrencyPoints` *(int, default 4000)* — hard cap on retained samples (oldest trimmed); bounds
+  memory + `sessions.json` size. `0` disables sampling.
+- `SessionRetentionDays` *(int, default 0 = forever)* — prune sessions older than N days (on connect +
+  at load); bounds long-term growth and keeps derived windows recent.
+
+**Design rule for any NEW passive collector** (e.g. the kills counter): it MUST land with its own
+`[Faust.Collection]` toggle (default on, cheaply off) and, where it accumulates unboundedly, a cap or
+retention knob — so the admin retains full control over Faust's passive footprint as the feature set
+grows. Per-frame work in a Harmony hook stays O(events), try/catch-guarded, and no-ops when its
+collector is disabled (mirroring the unlock death-hook's `TracksUnlocks` gate).

@@ -6,8 +6,12 @@ A **server-side** mod for V Rising dedicated servers that answers on-demand **in
 information** queries — about players, castles, plots, objects, and server activity — delivered
 as `.faust` chat commands and as structured data for the **BloodCraftHub** companion UI to render.
 
-Sensitive intel is **gated per feature** (admins choose Off / Admin-only / Players) and can carry
-an **item cost** — the Faustian toll — so on PvP/competitive servers, knowledge isn't free.
+Faust is **not all-or-nothing, and it's not a cheat.** It surfaces information; **your server's admins
+decide how much of it you can see.** Sensitive intel is **gated per feature** (admins choose Off /
+Admin-only / Players) and can carry an **item cost** — the Faustian toll — a cooldown, an unlock
+requirement, or a place you must stand near, so on PvP/competitive servers knowledge isn't free.
+Many servers run Faust admin-only; others hand players select intel as a gameplay tool. Admins also
+control what Faust **collects in the background**, so it never costs server performance.
 
 ---
 
@@ -42,6 +46,8 @@ every query also works from chat.
 - **Plot availability** — open building plots across the whole map, largest first.
 - **Full castle map** — every territory (claimed + open) in one list: owner, region, size, state,
   decay, online *(admin-default)*.
+- **Decay watch** — claimed castles ranked by who's closest to decaying (with the owner's last-online):
+  spot abandoned plots and cleanup targets *(admin-default)*.
 - **Player info** — online state, last-online, and (tracked by Faust over time) total playtime,
   session count, logins per week, and peak play hour.
 - **Online player positions** *(admin-default, PvP-sensitive)* — now with each player's region.
@@ -112,6 +118,7 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, size, decay state & time, owner online/last-online |
 | `.faust api plots [page]` | Open building plots across the map, largest first |
 | `.faust api castles [page]` | Every territory (claimed + open) — owner, region, size, state, decay, online *(admin-default)* |
+| `.faust api decay [page]` | Claimed castles ranked by soonest-to-decay + owner last-online *(admin-default)* |
 | `.faust api pinfo <name\|steamId>` | A player's online state, last-online, **playtime, sessions, logins/week & peak hour** (yourself always; others admin-gated) |
 | `.faust api positions [page]` | Locations (and regions) of online players *(admin-default)* |
 | `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle *(admin-default; great to price/PvP-gate)* |
@@ -144,7 +151,20 @@ effect on server restart.
 | Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
-`allcastles`, `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
+`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
+
+### Collection controls — what Faust gathers in the background
+
+Separate from *who can read* a feature, you control *what Faust passively collects*, so it never
+costs server performance. Almost every query reads live state on demand (zero idle cost); only the
+session/population history accumulates over time, and you can bound or switch it off:
+
+| Section | Key | Default | Effect |
+|---|---|---|---|
+| Faust.Collection | SessionTracking | `true` | Log connect/disconnect over time. **Off** ⇒ no history: playtime / sessions / frequency / peak-hour and the playtime leaderboard report "not tracked" |
+| Faust.Collection | ConcurrencySampling | `true` | Sample the online-player count (powers the population graph). Independent of SessionTracking |
+| Faust.Collection | MaxConcurrencyPoints | `4000` | Cap on stored population samples (oldest trimmed); bounds memory + file size. `0` disables sampling |
+| Faust.Collection | SessionRetentionDays | `0` | Prune sessions older than N days (`0` = keep forever) — bound long-term growth |
 
 ### Live admin controls (no restart)
 

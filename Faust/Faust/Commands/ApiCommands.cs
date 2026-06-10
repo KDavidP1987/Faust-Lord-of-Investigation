@@ -21,22 +21,22 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 8: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
-/// (#1, now carrying region=), resources (#6), the full-map castles list (allcastles) — server
-/// stats (#8: playtime + concurrency), and the full admin-control gate (block/schedule/PvP/
-/// window-period/cost + unlock criteria + proximity-to-object). Deny codes: blocked, schedule,
-/// pvp, window, locked, notnear. Bump whenever the wire grows.
+/// ApiVersion 9: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
+/// (#1, with region=), resources (#6), the full-map castles list (allcastles), the decay-watch list
+/// (decaywatch) — server stats (#8: playtime + concurrency), and the full admin-control gate
+/// (block/schedule/PvP/window-period/cost + unlock criteria + proximity-to-object). Deny codes:
+/// blocked, schedule, pvp, window, locked, notnear. Bump whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 8;
+    const int ApiVersion = 9;
 
     static readonly string[] FeatureOrder =
     {
         Settings.PlayerPositions, Settings.CastleInfo, Settings.PlayerInfo,
         Settings.PlotAvailability, Settings.ObjectScan, Settings.CastleResources, Settings.Stats,
-        Settings.AllCastles,
+        Settings.AllCastles, Settings.DecayWatch,
     };
 
     // ---- Foundation: handshake + probe ----
@@ -111,6 +111,21 @@ internal static class ApiCommands
 
         // One ctx.Reply per row + a [FAUST:end] cmd=castles trailer (never \n-join a page).
         if (Wire.SendPage(ctx, "castles", rows, page)) FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- Decay watch: claimed castles by soonest-to-decay (admin housekeeping / abandoned-plot intel) ----
+
+    [Command("decay", description: "BCH: claimed castles by soonest decay (paged). Usage: .faust api decay [page]")]
+    public static void Decay(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.DecayWatch);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var castles = Core.Castle.GetCastlesByDecay();
+        var rows = new List<string>(castles.Count);
+        foreach (var t in castles) rows.Add(CastleRow(t)); // reuse [FAUST:castle]; cmd=decay disambiguates
+
+        if (Wire.SendPage(ctx, "decay", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
     // ---- #4 Plot availability ----

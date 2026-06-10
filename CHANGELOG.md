@@ -7,6 +7,42 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.9.0] - 2026-06-10
+
+### Added — decay watch (#) + passive-collection controls
+
+A new admin housekeeping query and a second admin-control axis (what Faust *collects*, not just who
+*reads*). **ApiVersion → 9** (additive).
+
+- **`.faust api decay [page]`** — claimed castles ordered **soonest-to-decay first**, with the owner's
+  last-online — the abandoned-plot / cleanup view. New AdminOnly feature key **`decaywatch`**,
+  advertised in the `[FAUST:version]` handshake and auto-enrolled in `.faust admin` grant/block/
+  schedule. Reuses the `[FAUST:castle]` tag/field set (shared `CastleRow`) + a `[FAUST:end] cmd=decay`
+  trailer; open plots excluded, sealed castles (`decay=-1`) sort last. On-demand — zero passive cost.
+  - `CastleService.GetCastlesByDecay()` — claimed territories sorted ascending by fuel remaining.
+- **`[Faust.Collection]` config block** — admins now control Faust's *passive* background collection,
+  independent of feature access, so it never becomes a server-performance concern:
+  - `SessionTracking` (default `true`) — master switch for connect/disconnect session logging. Off ⇒
+    pinfo's playtime/sessions/frequency/peak-hour and the stats playtime leaderboard return the `-1`
+    "not tracked" sentinel and nothing is written.
+  - `ConcurrencySampling` (default `true`) — whether to sample the online count (population series).
+  - `MaxConcurrencyPoints` (default `4000`, was a hardcoded const) — cap on retained samples; `0`
+    disables sampling.
+  - `SessionRetentionDays` (default `0` = forever) — prune sessions older than N days (on connect + at
+    load) to bound long-term growth.
+  - `FaustStore` reads these; the live online set is always maintained in-memory (drives concurrency),
+    but **persistence** of sessions/concurrency now obeys the knobs.
+- Docs: `FAUST_DESIGN.md` gains §9 (post-0.8 opportunity catalog — clan info, server status, kills
+  leaderboard, soul-shard tracker, …) and §10 (the collection/performance-control axis + the design
+  rule that every new passive collector ships with its own toggle). READMEs gain a **"information
+  under admin control"** philosophy section. Contract + handshake updated (`decaywatch` token, `decay`
+  section).
+
+### Notes
+
+- Compiles clean (0 warnings). Not yet validated on a live server — needs an in-game pass (`.faust api
+  decay`; toggle `[Faust.Collection]` keys and confirm collection starts/stops and the sentinels).
+
 ## [0.8.0] - 2026-06-10
 
 ### Added — full server castle map + position regions (Raphael "All Plots")

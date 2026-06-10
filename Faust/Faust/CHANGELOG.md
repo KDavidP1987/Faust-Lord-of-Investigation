@@ -3,6 +3,18 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.9.0 (2026-06-10)
+
+- **New: `.faust api decay`** — claimed castles ranked by **soonest-to-decay**, with each owner's
+  last-online. Spot abandoned plots and cleanup targets at a glance. Defaults to admin-only.
+- **New: collection controls (`[Faust.Collection]`)** — you now control what Faust *gathers in the
+  background*, not just who can read it. Switch off session/population history, cap how much is kept,
+  or prune old data — so Faust never costs server performance. Almost every query already reads live
+  data on demand (no background cost); these knobs bound the one part that accumulates over time.
+- Both READMEs now spell out the philosophy: **Faust is information under admin control — not
+  all-or-nothing, not a cheat.** Admins decide, per feature, how much players see.
+- Note: still an early release — these haven't been validated in a live session yet.
+
 ## 0.8.0 (2026-06-10)
 
 - **New: `.faust api castles`** — the **full server castle map**: every territory, claimed and open,

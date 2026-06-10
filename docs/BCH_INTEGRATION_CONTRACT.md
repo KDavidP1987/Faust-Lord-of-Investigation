@@ -38,7 +38,7 @@ with one line:
 [FAUST:version] api=<int> plugin=<semver> ready=1 \
     playerpositions=<acc>:<cost> castleinfo=<acc>:<cost> playerinfo=<acc>:<cost> \
     plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
-    allcastles=<acc>:<cost>
+    allcastles=<acc>:<cost> decaywatch=<acc>:<cost>
 ```
 
 (Single line — shown wrapped here for readability.)
@@ -66,10 +66,11 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 8):** the shapes below are **IMPLEMENTED** and live as of Faust 0.8.0 —
+> **Status (ApiVersion 9):** the shapes below are **IMPLEMENTED** and live as of Faust 0.9.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
-> positions (#1, now carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`),
-> and `castles` (the full-map list, gated by the new `allcastles` feature). `objectscan` (#5) is
+> positions (#1, carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`),
+> `castles` (full-map list, `allcastles`), and `decay` (claimed castles by soonest-decay,
+> `decaywatch`). `objectscan` (#5) is
 > still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
 > Faust only if an admin prices it). A `-1` in any numeric field is the "not tracked / none recorded
 > yet" sentinel.
@@ -121,6 +122,21 @@ only *open* territories and `castleinfo` is one-at-a-time — this is the paged 
 - Unclaimed (heart-less) territory row: `owner=_ steam=0 region=<name> size=<blocks> state=unclaimed
   decay=0 online=0 lastonline=0` (same convention as `castleinfo` for an open plot). `decay=-1` when
   `state=sealed`. An empty server still sends `[FAUST:end] cmd=castles page=1/1 count=0`.
+
+### `decaywatch` (abandoned/decaying castles) — IMPLEMENTED (ApiVersion ≥9)
+`.faust api decay [page]` — **claimed** castles only, ordered **soonest-to-decay first**, paged.
+Admin-default (own feature key `decaywatch`); the housekeeping view (which castles are about to fall
+/ look abandoned — pair `decay` with `lastonline`). Open plots are excluded; sealed castles
+(`decay=-1`, never decay) sort to the end.
+```
+[FAUST:castle] tindex=<int> owner=<wire_name> steam=<id> region=<wire_name> size=<blocks> \
+    state=<sealed|fueled|decaying> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc>
+…rows (ascending decay)…
+[FAUST:end] cmd=decay page=<cur>/<total> count=<n>
+```
+- **Reuses the `[FAUST:castle]` tag** (identical fields to `castleinfo`/`castles`); BCH disambiguates
+  by the `[FAUST:end] cmd=decay` trailer. No `unclaimed` rows here (claimed castles only). An empty
+  server still sends `[FAUST:end] cmd=decay page=1/1 count=0`.
 
 ### `playerinfo` (#3) — IMPLEMENTED
 `.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using Faust.Config;
 
 namespace Faust.Services;
 
@@ -49,8 +50,6 @@ internal sealed class FaustStore
         public double FreqPerWeek { get; init; } // -1 if unknown
     }
 
-    const int MaxConcurrencyPoints = 4000; // bound the file; ~oldest trimmed
-
     readonly List<Session> _sessions = new();
     readonly List<ConcPoint> _concurrency = new();
     readonly Dictionary<ulong, string> _names = new();
@@ -84,6 +83,8 @@ internal sealed class FaustStore
                 foreach (var kvp in file.Names)
                     if (ulong.TryParse(kvp.Key, out var id)) _names[id] = kvp.Value;
 
+            PruneOldSessions(); // honour SessionRetentionDays on every boot
+
             Core.Log.LogInfo($"[FAUST STORE] loaded {_sessions.Count} session(s), {_concurrency.Count} concurrency point(s), {_names.Count} name(s).");
         }
         catch (Exception ex)
@@ -112,23 +113,38 @@ internal sealed class FaustStore
     public void OnConnect(ulong steam, string name)
     {
         if (steam == 0) return;
-        if (!string.IsNullOrEmpty(name)) _names[steam] = name;
-        // Close any stale open session for this steam, then open a fresh one.
-        foreach (var s in _sessions) if (s.Steam == steam && s.Disconnect == 0) s.Disconnect = Now;
-        _sessions.Add(new Session { Steam = steam, Connect = Now, Disconnect = 0 });
+        // The live online set is always maintained (trivial in-memory cost, drives OnlineCount and
+        // the concurrency sample). Whether anything is PERSISTED is governed by the collection knobs.
         _online.Add(steam);
-        RecordConcurrency();
-        SaveSync();
+
+        bool changed = false;
+        if (Settings.SessionTracking.Value)
+        {
+            if (!string.IsNullOrEmpty(name)) _names[steam] = name;
+            // Close any stale open session for this steam, then open a fresh one.
+            foreach (var s in _sessions) if (s.Steam == steam && s.Disconnect == 0) s.Disconnect = Now;
+            _sessions.Add(new Session { Steam = steam, Connect = Now, Disconnect = 0 });
+            PruneOldSessions();
+            changed = true;
+        }
+        if (RecordConcurrency()) changed = true;
+        if (changed) SaveSync();
     }
 
     public void OnDisconnect(ulong steam)
     {
         if (steam == 0) return;
-        long now = Now;
-        foreach (var s in _sessions) if (s.Steam == steam && s.Disconnect == 0) s.Disconnect = now;
         _online.Remove(steam);
-        RecordConcurrency();
-        SaveSync();
+
+        bool changed = false;
+        if (Settings.SessionTracking.Value)
+        {
+            long now = Now;
+            foreach (var s in _sessions) if (s.Steam == steam && s.Disconnect == 0) s.Disconnect = now;
+            changed = true;
+        }
+        if (RecordConcurrency()) changed = true;
+        if (changed) SaveSync();
     }
 
     /// <summary>Close every open session (clean shutdown) so the last session's playtime is kept.</summary>
@@ -141,11 +157,27 @@ internal sealed class FaustStore
         if (changed) SaveSync();
     }
 
-    void RecordConcurrency()
+    /// <summary>Sample the online count, honouring the ConcurrencySampling + MaxConcurrencyPoints
+    /// collection knobs. Returns true if a point was recorded (so the caller knows to persist).</summary>
+    bool RecordConcurrency()
     {
+        int cap = Settings.MaxConcurrencyPoints.Value;
+        if (!Settings.ConcurrencySampling.Value || cap <= 0) return false; // sampling disabled
         _concurrency.Add(new ConcPoint { T = Now, Count = _online.Count });
-        if (_concurrency.Count > MaxConcurrencyPoints)
-            _concurrency.RemoveRange(0, _concurrency.Count - MaxConcurrencyPoints);
+        if (_concurrency.Count > cap)
+            _concurrency.RemoveRange(0, _concurrency.Count - cap);
+        return true;
+    }
+
+    /// <summary>Drop sessions older than SessionRetentionDays (0 = keep forever). Bounds long-term
+    /// growth of sessions.json and keeps the derived playtime/frequency windows recent.</summary>
+    void PruneOldSessions()
+    {
+        int days = Settings.SessionRetentionDays.Value;
+        if (days <= 0) return;
+        long cutoff = Now - (long)days * 86400L;
+        // Prune by session END (a still-open session, Disconnect==0, is never pruned).
+        _sessions.RemoveAll(s => s.Disconnect != 0 && s.Disconnect < cutoff);
     }
 
     // ---- derived metrics (feature #3 playerinfo) ----

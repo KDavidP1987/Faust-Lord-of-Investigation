@@ -25,6 +25,7 @@ internal static class HelpCommands
                 ctx.Reply("CASTLES: '.faust api castleinfo <here|nearest|tindex>' — owner, region, size, decay " +
                           "state & time, owner online/last-online. '.faust api plots [page]' — open plots, largest " +
                           "first. '.faust api castles [page]' — every territory, full map (admin-default). " +
+                          "'.faust api decay [page]' — claimed castles by soonest decay (admin-default). " +
                           "'.faust api resources <here|nearest|tindex>' — total resources in a castle (admin-default).");
                 break;
             case "server":

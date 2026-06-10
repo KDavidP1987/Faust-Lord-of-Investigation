@@ -10,21 +10,24 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.7.0)
+## ⚠ Status: pre-1.0 — early data release (0.9.0)
 
 Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
 queries — **castle/plot info, plot availability, player info, online positions**. Added since:
 the `FaustStore` persistence layer (real playtime/frequency/peak-hour in `pinfo`, plus a `stats`
-playtime leaderboard and concurrency series), and the **complete administrative control surface**
+playtime leaderboard and concurrency series); the **complete administrative control surface**
 ([`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md)) — item cost (consumed), flat
 cooldowns and window-per-period time-locks, PvP/PvE gating, live `.faust admin block/schedule`
-overrides, and **unlock criteria** (a feature opens only after defeating a configured V Blood /
-Dracula, or an admin grant), and a **proximity requirement** (usable only within range of a
-configured object). 0.6.0 added **`castleresources` (#6)** — summing an enemy castle's total
-contents. The persistence, admin-control, and resource paths compile clean but are **pending a live
-in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and `objectscan` (#5) —
-which the design keeps client-side (BloodCraftHub reads nearby entities; server only if an admin
-prices it). The investigation feature set is otherwise feature-complete.
+overrides, **unlock criteria** (a feature opens only after defeating a configured V Blood / Dracula,
+or an admin grant), and a **proximity requirement** (usable only within range of a configured
+object); the **full server castle map** (`castles`) + position **regions** (0.8.0); and a **decay
+watch** (`decay`, claimed castles by soonest-to-decay) plus **passive-collection controls** (0.9.0 —
+admins bound or switch off what Faust collects in the background, for performance). 0.6.0 added
+**`castleresources` (#6)**. The persistence, admin-control, and resource paths compile clean but are
+**pending a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and
+`objectscan` (#5) — which the design keeps client-side (BloodCraftHub reads nearby entities; server
+only if an admin prices it). See [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §9 for the roadmap of
+candidate features (clan info, server status, kills leaderboard, soul-shard tracker, …).
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.
@@ -38,6 +41,27 @@ Faustian toll), and ships it to BloodCraftHub — exactly the integration patter
 sibling server-side mods **Uriel** and **Beelzebub** use. Faust is **not** a dependency of any of
 them; each is independent, and BloodCraftHub is an optional companion, never required.
 
+## Philosophy: information under admin control
+
+Faust is **not all-or-nothing, and it is not a wallhack.** Its job is to *surface* information; **the
+administrative team decides how much of it players can see** — feature by feature. Many servers will
+run Faust purely as an **admin/moderation tool**; others expose select intel to players when it
+*improves play* — offered **freely, or limited by an item cost, a cooldown or usage window, an unlock
+requirement, or being near a specific object**. Sensitive intel (positions, enemy resources, other
+players' data) **defaults to admin-only**; opening it to players is a deliberate, server-by-server
+balance decision, never the default.
+
+Admins control Faust on **two independent axes**:
+
+1. **Exposure** — per feature: who may read it (`Off` / `AdminOnly` / `Players`), at what cost, with
+   what cooldown/window, behind what unlock or proximity requirement. (See
+   [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md).)
+2. **Collection** — what Faust *passively gathers* in the background. Almost every query reads live
+   state on demand (zero idle cost); only the session/population time-series accumulates over time,
+   and the `[Faust.Collection]` config lets admins bound it or switch it off entirely — so Faust never
+   becomes a performance concern, regardless of how widely its data is exposed. (See
+   [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §10.)
+
 ## Features (see [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md))
 
 | # | Feature | Default access | Status |
@@ -46,6 +70,7 @@ them; each is independent, and BloodCraftHub is an optional companion, never req
 | 2 | Castle/plot info (owner, region, size, decay state & time, last-online) | Players | ✅ `castleinfo` |
 | 4 | Plot availability (open plots by size) | Players | ✅ `plots` |
 | — | Full server castle map (every territory, claimed + open) | AdminOnly | ✅ `castles` (`allcastles` — Raphael "All Plots") |
+| — | Decay watch (claimed castles by soonest-to-decay) | AdminOnly | ✅ `decay` (`decaywatch`) |
 | 3 | Player info (online, last-online, playtime, frequency, peak hour) | AdminOnly (others) | ✅ `pinfo` (FaustStore persistence) |
 | 1 | Online player positions (with region) | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
@@ -53,8 +78,12 @@ them; each is independent, and BloodCraftHub is an optional companion, never req
 | 5 | Nearby object scan | Players (Free) | client-side by design — server only if priced |
 | 9 | Visual graphs | — | rendered client-side in BloodCraftHub |
 
+*"Default access" is the **recommended starting point** — every value is admin-configurable per
+feature (`Off` / `AdminOnly` / `Players`), along with its cost, cooldown/window, unlock, and proximity
+requirement. See the [Philosophy](#philosophy-information-under-admin-control) section above.*
+
 Pending: `AllBosses`/`AllQuests` unlock auto-detection (other unlock criteria live); live in-game
-validation of the 0.3–0.7 paths.
+validation of the 0.3–0.9 paths.
 
 ## Architecture
 

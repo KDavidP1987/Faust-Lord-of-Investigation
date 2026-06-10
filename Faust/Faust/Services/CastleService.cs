@@ -179,6 +179,34 @@ internal sealed class CastleService
         return result;
     }
 
+    /// <summary>Claimed castles ordered by soonest-to-decay first — the admin housekeeping view
+    /// ("which castles are about to fall / abandoned"). Open plots are excluded (no heart to decay);
+    /// sealed castles (never decay, DecaySeconds == -1) sort to the very end. Reads live heart fuel —
+    /// no passive collection. Pair the row's decay + lastonline to spot abandoned plots.</summary>
+    public List<TerritoryInfo> GetCastlesByDecay()
+    {
+        var result = new List<TerritoryInfo>();
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+            {
+                var ct = territories[i].Read<CastleTerritory>();
+                if (!ct.CastleHeart.Exists()) continue; // open plot — nothing to decay
+                result.Add(BuildInfo(territories[i], ct));
+            }
+        }
+        finally { territories.Dispose(); }
+        // Ascending by fuel remaining; sealed (-1 = infinite) treated as +infinity so it sorts last.
+        result.Sort((a, b) =>
+        {
+            long da = a.DecaySeconds < 0 ? long.MaxValue : a.DecaySeconds;
+            long db = b.DecaySeconds < 0 ? long.MaxValue : b.DecaySeconds;
+            return da.CompareTo(db);
+        });
+        return result;
+    }
+
     /// <summary>
     /// Sum every container's contents in the castle on a territory (feature #6). Returns false for
     /// an unclaimed/heart-less territory. Enumerates entities connected to the castle heart

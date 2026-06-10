@@ -14,6 +14,14 @@ namespace Faust.Services;
 /// </summary>
 internal static class Wire
 {
+    /// <summary>
+    /// Canonical region token: the single "no region" sentinel '-' for null/empty (open world /
+    /// out-of-bounds / unmapped), else the wire-safe name. Every region-bearing wire line
+    /// (positions, castleinfo, castles, decay, plots) goes through this so BCH has ONE unmapped
+    /// token to test — never the literal "None"/"Unknown" that used to leak through.
+    /// </summary>
+    public static string Region(string region) => string.IsNullOrEmpty(region) ? "-" : Safe(region);
+
     /// <summary>Make a free-text value wire-safe: spaces -> '_', strip delimiter chars.</summary>
     public static string Safe(string value)
     {
@@ -44,6 +52,18 @@ internal static class Wire
         for (int i = start; i < end; i++) ctx.Reply(rows[i]);
 
         ctx.Reply($"[FAUST:end] cmd={cmd} page={page}/{total} count={rows.Count}");
+        return rows.Count > 0;
+    }
+
+    /// <summary>
+    /// Send a short bounded series UN-paged: one ctx.Reply per row, then a
+    /// "[FAUST:end] cmd=&lt;cmd&gt; count=&lt;n&gt;" trailer (no page token — the caller emits the whole
+    /// fixed-size window at once, e.g. a daily/newplayers chart). Returns true if any row was sent.
+    /// </summary>
+    public static bool SendList(ChatCommandContext ctx, string cmd, IReadOnlyList<string> rows)
+    {
+        for (int i = 0; i < rows.Count; i++) ctx.Reply(rows[i]);
+        ctx.Reply($"[FAUST:end] cmd={cmd} count={rows.Count}");
         return rows.Count > 0;
     }
 }

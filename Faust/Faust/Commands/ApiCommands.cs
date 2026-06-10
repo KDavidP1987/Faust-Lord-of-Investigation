@@ -21,16 +21,17 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 9: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
+/// ApiVersion 10: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
 /// (#1, with region=), resources (#6), the full-map castles list (allcastles), the decay-watch list
-/// (decaywatch) — server stats (#8: playtime + concurrency), and the full admin-control gate
+/// (decaywatch) — server stats (#8: playtime + concurrency, plus the activity analytics added in
+/// ApiVersion 10: hours/daily/newplayers/sessions charts), and the full admin-control gate
 /// (block/schedule/PvP/window-period/cost + unlock criteria + proximity-to-object). Deny codes:
 /// blocked, schedule, pvp, window, locked, notnear. Bump whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 9;
+    const int ApiVersion = 10;
 
     static readonly string[] FeatureOrder =
     {
@@ -139,7 +140,7 @@ internal static class ApiCommands
         var plots = Core.Castle.GetFreePlots();
         var rows = new List<string>(plots.Count);
         foreach (var p in plots)
-            rows.Add($"[FAUST:plot] tindex={p.TerritoryIndex} size={p.SizeBlocks} region={Wire.Safe(p.Region)}");
+            rows.Add($"[FAUST:plot] tindex={p.TerritoryIndex} size={p.SizeBlocks} region={Wire.Region(p.Region)}");
 
         // One ctx.Reply per wire line + a [FAUST:end] trailer (never \n-join a page).
         if (Wire.SendPage(ctx, "plots", rows, page)) FaustAccessGate.Commit(ctx, gate);
@@ -204,32 +205,80 @@ internal static class ApiCommands
         FaustAccessGate.Commit(ctx, gate); // a resolved castle is a real result, even if empty
     }
 
-    // ---- #8 Server stats (playtime leaderboard + concurrency series) ----
+    // ---- #8 Server stats: leaderboard + concurrency series + activity analytics (charts) ----
+    //
+    // <kind> ∈ playtime | concurrency (paged leaderboard/series) | hours | sessions (single-line,
+    // optional <name|steamId> scope) | daily | newplayers (un-paged day series, optional days count).
+    // <arg> carries the page (playtime/concurrency), the player scope (hours/sessions), or the day
+    // window (daily/newplayers), parsed per-kind so one gate governs the whole stats surface.
 
-    [Command("stats", description: "BCH: server stats. Usage: .faust api stats <playtime|concurrency> [page]")]
-    public static void Stats(ChatCommandContext ctx, string kind, int page = 1)
+    [Command("stats", description: "BCH: server stats. Usage: .faust api stats <playtime|concurrency|hours|daily|newplayers|sessions> [page|player|days]")]
+    public static void Stats(ChatCommandContext ctx, string kind, string arg = null)
     {
         var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
         if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
 
-        kind = kind?.ToLowerInvariant();
-        List<string> rows;
-        if (kind == "playtime")
+        switch (kind?.ToLowerInvariant())
         {
-            rows = new List<string>();
-            int rank = 1;
-            foreach (var e in Core.Store.GetPlaytimeLeaderboard())
-                rows.Add($"[FAUST:stat] kind=playtime rank={rank++} steam={e.steam} name={Wire.Safe(e.name)} value={e.minutes}");
+            case "playtime":
+            {
+                var rows = new List<string>();
+                int rank = 1;
+                foreach (var e in Core.Store.GetPlaytimeLeaderboard())
+                    rows.Add($"[FAUST:stat] kind=playtime rank={rank++} steam={e.steam} name={Wire.Safe(e.name)} value={e.minutes}");
+                if (Wire.SendPage(ctx, "stats kind=playtime", rows, ArgPage(arg))) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "concurrency":
+            {
+                // Full stored history (bounded by MaxConcurrencyPoints), oldest→newest, PAGED — so the
+                // population series isn't silently truncated to a fixed recent window.
+                var rows = new List<string>();
+                foreach (var p in Core.Store.GetConcurrency(int.MaxValue))
+                    rows.Add($"[FAUST:stat] kind=concurrency t={p.t} avg={p.count}");
+                if (Wire.SendPage(ctx, "stats kind=concurrency", rows, ArgPage(arg))) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "hours":
+            {
+                if (!TryScope(ctx, arg, out var scope, out var scopeTok)) return;
+                var h = Core.Store.GetHourHistogram(scope);
+                var sb = new StringBuilder($"[FAUST:hours] scope={scopeTok}");
+                for (int i = 0; i < 24; i++) sb.Append($" h{i:00}={h[i]}");
+                ctx.Reply(sb.ToString());
+                FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "sessions":
+            {
+                if (!TryScope(ctx, arg, out var scope, out var scopeTok)) return;
+                var b = Core.Store.GetSessionLengthBuckets(scope);
+                ctx.Reply($"[FAUST:sessions] scope={scopeTok} lt15={b.lt15} m15_60={b.m15to60} h1_3={b.h1to3} gt3h={b.gt3h}");
+                FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "daily":
+            {
+                int days = ArgDays(arg, 14);
+                var rows = new List<string>(days);
+                foreach (var d in Core.Store.GetDailySeries(days))
+                    rows.Add($"[FAUST:daily] day={d.dayMidnightUtc} dau={d.dau} minutes={d.minutes}");
+                if (Wire.SendList(ctx, "daily", rows)) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "newplayers":
+            {
+                int days = ArgDays(arg, 30);
+                var rows = new List<string>(days);
+                foreach (var d in Core.Store.GetNewPlayersSeries(days))
+                    rows.Add($"[FAUST:newplayers] day={d.dayMidnightUtc} new={d.newPlayers}");
+                if (Wire.SendList(ctx, "newplayers", rows)) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            default:
+                ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.Stats}");
+                break;
         }
-        else if (kind == "concurrency")
-        {
-            rows = new List<string>();
-            foreach (var p in Core.Store.GetConcurrency(200))
-                rows.Add($"[FAUST:stat] kind=concurrency t={p.t} avg={p.count}");
-        }
-        else { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.Stats}"); return; }
-
-        if (Wire.SendPage(ctx, $"stats kind={kind}", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
     // ---- #1 Online positions (admin-default) ----
@@ -244,7 +293,7 @@ internal static class ApiCommands
         var rows = new List<string>(positions.Count);
         foreach (var p in positions)
             rows.Add($"[FAUST:pos] steam={p.SteamId} name={Wire.Safe(p.Name)} " +
-                     $"x={F(p.X)} z={F(p.Z)} tindex={p.TerritoryIndex} region={RegionWire(p.Region)}");
+                     $"x={F(p.X)} z={F(p.Z)} tindex={p.TerritoryIndex} region={Wire.Region(p.Region)}");
 
         if (Wire.SendPage(ctx, "positions", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
@@ -254,18 +303,43 @@ internal static class ApiCommands
     static Unity.Mathematics.float3 SenderPos(ChatCommandContext ctx) =>
         ctx.Event.SenderCharacterEntity.Read<LocalToWorld>().Position;
 
+    /// <summary>Parse the stats <arg> as a 1-based page (playtime/concurrency); default/invalid → 1.</summary>
+    static int ArgPage(string arg) =>
+        int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) && p > 0 ? p : 1;
+
+    /// <summary>Parse the stats <arg> as a day window (daily/newplayers), clamped to [1, 90].</summary>
+    static int ArgDays(string arg, int fallback)
+    {
+        int days = int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) && d > 0 ? d : fallback;
+        return Math.Clamp(days, 1, 90);
+    }
+
+    /// <summary>
+    /// Resolve a stats scope from <arg>: empty → server-wide (scope=server); else a player. On an
+    /// unresolvable player, emits the notfound err and returns false (the caller stops, no commit).
+    /// </summary>
+    static bool TryScope(ChatCommandContext ctx, string arg, out ulong? scope, out string scopeToken)
+    {
+        scope = null; scopeToken = "server";
+        if (string.IsNullOrWhiteSpace(arg)) return true;
+        if (!EntityExtensions.TryResolvePlayer(arg, out var steamId, out _, out _, out _))
+        {
+            ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Stats}");
+            return false;
+        }
+        scope = steamId; scopeToken = steamId.ToString();
+        return true;
+    }
+
     /// <summary>One [FAUST:castle] row — shared by single castleinfo lookups and the castles list.
     /// Unclaimed (heart-less) territory yields owner=_ steam=0 online=0 lastonline=0 (BuildInfo defaults).</summary>
     static string CastleRow(in CastleService.TerritoryInfo t) =>
         $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
-        $"steam={t.OwnerSteamId} region={Wire.Safe(t.Region)} size={t.SizeBlocks} " +
+        $"steam={t.OwnerSteamId} region={Wire.Region(t.Region)} size={t.SizeBlocks} " +
         $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
         $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}";
 
     static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
-
-    /// <summary>Region token for [FAUST:pos]: wire-safe name, or '-' for the open world / no region.</summary>
-    static string RegionWire(string region) => string.IsNullOrEmpty(region) ? "-" : Wire.Safe(region);
 
     /// <summary>Logins/week with one decimal; the -1 "not tracked" sentinel stays a bare -1.</summary>
     static string Freq(double v) => v < 0 ? "-1" : v.ToString("0.0", CultureInfo.InvariantCulture);

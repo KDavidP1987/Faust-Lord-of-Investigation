@@ -24,7 +24,10 @@ internal static class OnUserConnected_Patch
             var userIndex = __instance._NetEndPointToApprovedUserIndex[netConnectionId];
             var serverClient = __instance._ApprovedUsersLookup[userIndex];
             var user = __instance.EntityManager.GetComponentData<User>(serverClient.UserEntity);
-            if (user.CharacterName.IsEmpty) return; // brand-new vampire, no character yet
+            // Brand-new vampire with no character yet: skip. NOTE this means a player's very FIRST
+            // connect (pre-character-creation) isn't logged — their first-seen / first session starts
+            // at the next connect that has a name. Marginal effect on new-player/first-seen analytics.
+            if (user.CharacterName.IsEmpty) return;
             Core.Store.OnConnect(user.PlatformId, user.CharacterName.ToString());
         }
         catch (Exception ex)

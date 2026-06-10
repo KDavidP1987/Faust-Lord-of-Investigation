@@ -35,7 +35,7 @@ internal sealed class PlayerInfoService
         public float X { get; init; }
         public float Z { get; init; }
         public int TerritoryIndex { get; init; } // -1 if in open world
-        public string Region { get; init; }      // territory's region; null in the open world
+        public string Region { get; init; }      // map world-region at the player's position; null if outside all regions
     }
 
     public bool TryGetPlayer(ulong steamId, out PlayerSnapshot snapshot)
@@ -83,6 +83,10 @@ internal sealed class PlayerInfoService
             if (!charEntity.TryGetComponent<LocalToWorld>(out var ltw)) continue;
             var pos = ltw.Position;
             int tindex = Core.Castle.GetTerritoryIndexAt(pos);
+            // Region is resolved from the player's WORLD position (the map's named regions), not from
+            // the castle territory — a player off any castle plot still has a region. Fall back to the
+            // territory's region if the world-region lookup comes up empty.
+            string region = Core.Castle.GetWorldRegionName(pos) ?? Core.Castle.GetRegionForTerritory(tindex);
             result.Add(new PlayerPosition
             {
                 SteamId = u.PlatformId,
@@ -90,7 +94,7 @@ internal sealed class PlayerInfoService
                 X = pos.x,
                 Z = pos.z,
                 TerritoryIndex = tindex,
-                Region = Core.Castle.GetRegionForTerritory(tindex),
+                Region = region,
             });
         }
         return result;

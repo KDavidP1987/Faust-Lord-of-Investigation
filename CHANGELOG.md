@@ -7,6 +7,66 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.10.0] - 2026-06-10
+
+### Added — activity analytics for admin charts (#8)
+
+Four new read-only `stats` sub-queries that turn Faust's session log into the time-resolved series an
+admin "player activity" dashboard needs (requested by the Raphael client, `docs/FAUST_API_REQUESTS.md`
+§4). All share the existing `stats` feature gate (Players-default; admins can lock it down) — no new
+feature key. **ApiVersion → 10** (additive; an older BCH/Raphael simply hides any chart it can't read).
+
+- **`.faust api stats hours [<name|steamId>]`** — accumulated playtime **minutes per UTC hour-of-day**
+  (24 buckets), server-wide or for one player. Sessions are **sliced at hour boundaries**, so a session
+  that straddles midnight feeds every hour it touches — a true activity profile, not a connect-time
+  tally. One line: `[FAUST:hours] scope=<server|steamId> h00=<min> … h23=<min>`.
+- **`.faust api stats daily [days=14]`** — per-day **DAU** + **play-minutes** for the last N days
+  (clamped 1–90), oldest→newest. `[FAUST:daily] day=<unixUtcMidnight> dau=<int> minutes=<int>` rows
+  followed by `[FAUST:end] cmd=daily count=<n>` (un-paged — the whole window ships at once).
+- **`.faust api stats newplayers [days=30]`** — per-day **first-seen** counts (growth/retention).
+  `[FAUST:newplayers] day=<unixUtcMidnight> new=<int>` rows + `[FAUST:end] cmd=newplayers count=<n>`.
+- **`.faust api stats sessions [<name|steamId>]`** — **session-length distribution** in four buckets
+  (`<15m` / `15–60m` / `1–3h` / `3h+`). One line:
+  `[FAUST:sessions] scope=<server|steamId> lt15=<n> m15_60=<n> h1_3=<n> gt3h=<n>`.
+
+The `stats` command's second positional arg is now parsed per-kind: a **page** (`playtime`/
+`concurrency`), a **player scope** (`hours`/`sessions`), or a **day window** (`daily`/`newplayers`).
+New aggregations live in `FaustStore` (`GetHourHistogram`, `GetDailySeries`, `GetNewPlayersSeries`,
+`GetSessionLengthBuckets`); a new `Wire.SendList` emits an un-paged series + count trailer. Contract:
+`docs/BCH_INTEGRATION_CONTRACT.md` §3 `stats`.
+
+### Fixed — `positions` region now resolves for players off castle plots
+
+`.faust api positions` was deriving each player's `region=` from the **castle territory** they stood
+on, so anyone out in the open world (not on a buildable plot) came across with a blank region — only
+players standing on a castle plot showed one. Region is now resolved from the player's **world
+position** by point-in-polygon over the map's `WorldRegionPolygon` set (`CastleService.GetWorldRegionName`,
+the KindredCommands `RegionService` model), with the old territory-region as a fallback. The wire
+shape is unchanged (`region=` already existed), so **no ApiVersion bump** — existing BCH/Raphael
+clients just start seeing a region for roaming players. A position outside every region polygon
+(genuine void / out-of-bounds) still sends the `-` sentinel.
+
+### Fixed — one canonical `region=` "no region" sentinel (`-`) across all features
+
+Audit follow-up. `castleinfo` / `castles` / `decay` / `plots` previously emitted the literal `None`
+(out-of-bounds territory whose `TerritoryWorldRegion` is `WorldRegionType.None`) or `Unknown` (missing
+component), while `positions` used `-` — three different "no region" tokens. They now all funnel
+through `Wire.Region(...)`, which emits **`-`** for any unmapped region and the wire-safe name
+otherwise. Region resolution is normalized at the source (`CastleService.ResolveTerritoryRegion`):
+`TerritoryWorldRegion` when it's a real region, else a point-in-polygon lookup at a sampled tile of
+the plot (covers territories with an unset component), else null → `-`. The world-region bounds test
+is now x/z-only (a plot's sampled `Y=0` no longer fails the region AABB). Wire shape unchanged → no
+ApiVersion bump; the contract's §4 now documents `-` as the single unmapped sentinel.
+
+### Changed — `stats concurrency` pages the full stored history
+
+Was silently truncated to the most recent 200 samples on read; now exposes the **full stored series**
+(bounded by `MaxConcurrencyPoints`, default 4000) and pages it like the other lists, so the population
+graph isn't capped to a fixed recent window. Added contract caveats: all hour/day analytics are
+**UTC**; `newplayers`/`firstseen` mean "first seen by Faust" (veterans look "new" right after install,
+and the series is unreliable with `SessionRetentionDays` > 0); `peakhour` (by login count) and `stats
+hours` (by playtime) measure different things.
+
 ## [0.9.0] - 2026-06-10
 
 ### Added — decay watch (#) + passive-collection controls

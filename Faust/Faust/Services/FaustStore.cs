@@ -35,6 +35,7 @@ internal sealed class FaustStore
 
     sealed class SaveFile
     {
+        // Reserved for a future on-load migration; currently written but not yet read/branched on.
         public int SchemaVersion { get; set; } = 1;
         public List<Session> Sessions { get; set; } = new();
         public List<ConcPoint> Concurrency { get; set; } = new();
@@ -244,6 +245,143 @@ internal sealed class FaustStore
         var result = new List<(long, int)>(_concurrency.Count - start);
         for (int i = start; i < _concurrency.Count; i++) result.Add((_concurrency[i].T, _concurrency[i].Count));
         return result;
+    }
+
+    // ---- activity analytics (feature #8: time-resolved charts the client can't derive) ----
+    //
+    // All four are aggregations over the same session log. Playtime is attributed by SLICING each
+    // session at the relevant boundary (UTC hour / UTC midnight) so a session that straddles a
+    // boundary contributes to both buckets — a true activity profile, not just a connect-time tally.
+
+    const long Hour = 3600L;
+    const long Day = 86400L;
+    // Safety bound on the per-session slice walk (one open session left running for years would
+    // otherwise spin): cap any single session's contribution to the most recent ~2 years.
+    const int MaxSliceIterations = 24 * 731;
+
+    /// <summary>UTC midnight (Unix seconds) at or before <paramref name="t"/>.</summary>
+    static long DayFloor(long t) => t - (t % Day);
+
+    /// <summary>
+    /// Accumulated playtime MINUTES per UTC hour-of-day (24 buckets, h[0]=00:00–01:00 … h[23]).
+    /// Server-wide when <paramref name="steam"/> is null, else just that player's sessions.
+    /// Sessions are sliced at hour boundaries so a session spanning 22:30→01:15 feeds hours 22/23/0/1.
+    /// </summary>
+    public long[] GetHourHistogram(ulong? steam)
+    {
+        long now = Now;
+        var secs = new long[24];
+        foreach (var s in _sessions)
+        {
+            if (steam.HasValue && s.Steam != steam.Value) continue;
+            long t = s.Connect, end = s.Disconnect == 0 ? now : s.Disconnect;
+            int guard = 0;
+            while (t < end && guard++ < MaxSliceIterations)
+            {
+                int hour = DateTimeOffset.FromUnixTimeSeconds(t).UtcDateTime.Hour;
+                long nextBoundary = (t - (t % Hour)) + Hour; // next exact UTC hour (epoch aligns to hours)
+                long sliceEnd = Math.Min(end, nextBoundary);
+                secs[hour] += sliceEnd - t;
+                t = sliceEnd;
+            }
+        }
+        var mins = new long[24];
+        for (int h = 0; h < 24; h++) mins[h] = secs[h] / 60;
+        return mins;
+    }
+
+    /// <summary>
+    /// Per-day distinct online players (DAU) and total play-minutes for the last <paramref name="days"/>
+    /// days (oldest→newest, today last). Playtime is sliced at UTC midnight; a player counts toward a
+    /// day's DAU if any session overlapped that day.
+    /// </summary>
+    public List<(long dayMidnightUtc, int dau, long minutes)> GetDailySeries(int days)
+    {
+        long now = Now;
+        long today = DayFloor(now);
+        long start = today - (long)(days - 1) * Day;
+
+        var secs = new long[days];
+        var dau = new HashSet<ulong>[days];
+        for (int i = 0; i < days; i++) dau[i] = new HashSet<ulong>();
+
+        foreach (var s in _sessions)
+        {
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (end <= start) continue;                  // entirely before the window
+            long t = Math.Max(s.Connect, start);
+            int guard = 0;
+            while (t < end && guard++ < days + 1)
+            {
+                long dayMid = DayFloor(t);
+                int idx = (int)((dayMid - start) / Day);
+                long sliceEnd = Math.Min(end, dayMid + Day);
+                if (idx >= 0 && idx < days)
+                {
+                    secs[idx] += sliceEnd - t;
+                    dau[idx].Add(s.Steam);
+                }
+                t = sliceEnd;
+            }
+        }
+
+        var result = new List<(long, int, long)>(days);
+        for (int i = 0; i < days; i++)
+            result.Add((start + (long)i * Day, dau[i].Count, secs[i] / 60));
+        return result;
+    }
+
+    /// <summary>
+    /// Per-day count of players whose FIRST recorded session falls on that day, for the last
+    /// <paramref name="days"/> days (oldest→newest). First-seen is bounded by retained data
+    /// (SessionRetentionDays), so a pruned server can under-count growth before the retention window.
+    /// </summary>
+    public List<(long dayMidnightUtc, int newPlayers)> GetNewPlayersSeries(int days)
+    {
+        long today = DayFloor(Now);
+        long start = today - (long)(days - 1) * Day;
+
+        // First-seen connect time per player across ALL retained sessions.
+        var firstSeen = new Dictionary<ulong, long>();
+        foreach (var s in _sessions)
+        {
+            if (!firstSeen.TryGetValue(s.Steam, out var cur) || s.Connect < cur)
+                firstSeen[s.Steam] = s.Connect;
+        }
+
+        var counts = new int[days];
+        foreach (var first in firstSeen.Values)
+        {
+            long dayMid = DayFloor(first);
+            int idx = (int)((dayMid - start) / Day);
+            if (idx >= 0 && idx < days) counts[idx]++;
+        }
+
+        var result = new List<(long, int)>(days);
+        for (int i = 0; i < days; i++) result.Add((start + (long)i * Day, counts[i]));
+        return result;
+    }
+
+    /// <summary>
+    /// Session-length distribution as four bucket counts: &lt;15m, 15–60m, 1–3h, 3h+.
+    /// Server-wide when <paramref name="steam"/> is null, else that player's sessions.
+    /// </summary>
+    public (int lt15, int m15to60, int h1to3, int gt3h) GetSessionLengthBuckets(ulong? steam)
+    {
+        long now = Now;
+        int b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+        foreach (var s in _sessions)
+        {
+            if (steam.HasValue && s.Steam != steam.Value) continue;
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            long dur = end - s.Connect;
+            if (dur <= 0) continue;
+            if (dur < 900) b0++;            // < 15 min
+            else if (dur < 3600) b1++;      // 15–60 min
+            else if (dur < 10800) b2++;     // 1–3 h
+            else b3++;                       // 3 h+
+        }
+        return (b0, b1, b2, b3);
     }
 
     public int OnlineCount => _online.Count;

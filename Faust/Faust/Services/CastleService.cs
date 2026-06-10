@@ -6,6 +6,7 @@ using ProjectM.Terrain;
 using Stunlock.Core;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
 
@@ -65,7 +66,9 @@ internal sealed class CastleService
             for (int i = 0; i < territories.Length; i++)
             {
                 var idx = territories[i].Read<CastleTerritory>().CastleTerritoryIndex;
-                if (territories[i].TryGetComponent<TerritoryWorldRegion>(out var twr))
+                // Only cache a REAL region: a None/out-of-bounds value is left absent so the lookup
+                // returns null (→ '-' sentinel on the wire) rather than the literal "None".
+                if (territories[i].TryGetComponent<TerritoryWorldRegion>(out var twr) && twr.Region != WorldRegionType.None)
                     _territoryRegion[idx] = RegionName(twr.Region);
                 var blocks = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territories[i]);
                 for (int b = 0; b < blocks.Length; b++)
@@ -81,6 +84,114 @@ internal sealed class CastleService
         if (territoryIndex < 0) return null;
         EnsureBlockMap();
         return _territoryRegion.TryGetValue(territoryIndex, out var r) ? r : null;
+    }
+
+    // ---- World-region-by-position (the map's named regions, NOT castle territories) ----
+    // The territory map only covers castle-buildable plots, so a player out in the open world has
+    // no territory and thus no region. The game also publishes WorldRegionPolygon entities — one
+    // convex/concave polygon per named map region (Farbane Woods, Dunley Farmlands, …) — so any
+    // position resolves to its region by point-in-polygon, plot or not. (KindredCommands RegionService.)
+
+    struct RegionPolygon
+    {
+        public WorldRegionType Region;
+        public Aabb Bounds;       // fast reject before the point-in-polygon test
+        public float2[] Vertices; // world (x, z)
+    }
+
+    List<RegionPolygon> _regionPolygons; // lazily built; the map's region layout never changes at runtime
+
+    void EnsureRegionPolygons()
+    {
+        if (_regionPolygons != null) return;
+        _regionPolygons = new List<RegionPolygon>();
+        var polys = Query.GetEntitiesByComponentType<WorldRegionPolygon>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < polys.Length; i++)
+            {
+                if (!polys[i].Has<WorldRegionPolygonVertex>()) continue;
+                var wrp = polys[i].Read<WorldRegionPolygon>();
+                var buf = Core.EntityManager.GetBuffer<WorldRegionPolygonVertex>(polys[i]);
+                if (buf.Length < 3) continue;
+                var verts = new float2[buf.Length];
+                for (int v = 0; v < buf.Length; v++) verts[v] = buf[v].VertexPos;
+                _regionPolygons.Add(new RegionPolygon { Region = wrp.WorldRegion, Bounds = wrp.PolygonBounds, Vertices = verts });
+            }
+        }
+        finally { polys.Dispose(); }
+        if (Faust.Config.Settings.VerboseLogging.Value)
+            Core.Log.LogInfo($"[FAUST CASTLE] world-region polygons cached: {_regionPolygons.Count}");
+    }
+
+    /// <summary>
+    /// The named world region a position falls in (point-in-polygon over the map's WorldRegionPolygon
+    /// set), or null if outside every region (open world / void / out-of-bounds). Unlike
+    /// <see cref="GetRegionForTerritory"/> this works ANYWHERE on the map — it does not require the
+    /// player to be standing on a castle plot.
+    /// </summary>
+    public string GetWorldRegionName(float3 pos)
+    {
+        EnsureRegionPolygons();
+        foreach (var rp in _regionPolygons)
+        {
+            // Fast-reject on the x/z bounds only — region is a 2D map zone, so the player's (or a
+            // sampled plot's) Y must not gate it (a sample position may use Y=0).
+            if (pos.x < rp.Bounds.Min.x || pos.x > rp.Bounds.Max.x ||
+                pos.z < rp.Bounds.Min.z || pos.z > rp.Bounds.Max.z) continue;
+            if (IsPointInPolygon(rp.Vertices, pos.x, pos.z))
+                return RegionName(rp.Region);
+        }
+        return null; // WorldRegionType.None / outside all polygons -> no region
+    }
+
+    /// <summary>
+    /// The region for a whole territory: its <c>TerritoryWorldRegion</c> when that resolves to a real
+    /// region, else a point-in-polygon lookup at a sampled tile of the plot (covers territories whose
+    /// component is unset), else null (genuine out-of-bounds → '-' on the wire). Works for claimed and
+    /// open plots alike — no heart required.
+    /// </summary>
+    string ResolveTerritoryRegion(Entity territoryEntity)
+    {
+        if (territoryEntity.TryGetComponent<TerritoryWorldRegion>(out var twr) && twr.Region != WorldRegionType.None)
+            return RegionName(twr.Region);
+        if (TryGetTerritorySamplePosition(territoryEntity, out var pos))
+            return GetWorldRegionName(pos);
+        return null;
+    }
+
+    /// <summary>A representative world position for a territory (the centre of its first build tile),
+    /// for region resolution. False if the territory has no blocks.</summary>
+    bool TryGetTerritorySamplePosition(Entity territoryEntity, out float3 pos)
+    {
+        pos = default;
+        if (!Core.EntityManager.HasComponent<CastleTerritoryBlocks>(territoryEntity)) return false;
+        var blocks = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territoryEntity);
+        if (blocks.Length == 0) return false;
+        pos = BlockCoordToWorldCentre(blocks[0].BlockCoordinate);
+        return true;
+    }
+
+    /// <summary>Inverse of <see cref="ConvertPosToBlockCoord"/>: a block coord → the world position at
+    /// that tile's centre (Y=0; region lookup is x/z only).</summary>
+    static float3 BlockCoordToWorldCentre(int2 block)
+    {
+        float gridX = block.x * BLOCK_SIZE + BLOCK_SIZE / 2f;
+        float gridZ = block.y * BLOCK_SIZE + BLOCK_SIZE / 2f;
+        return new float3((gridX - 6400f) / 2f, 0f, (gridZ - 6400f) / 2f);
+    }
+
+    /// <summary>Standard ray-casting point-in-polygon (vertices are world x/z).</summary>
+    static bool IsPointInPolygon(float2[] polygon, float px, float pz)
+    {
+        int intersections = 0;
+        for (int i = 0, j = polygon.Length - 1; i < polygon.Length; j = i++)
+        {
+            if ((polygon[i].y > pz) != (polygon[j].y > pz) &&
+                px < (polygon[j].x - polygon[i].x) * (pz - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)
+                intersections++;
+        }
+        return (intersections & 1) != 0;
     }
 
     static float3 ConvertPosToGrid(float3 pos) =>
@@ -290,8 +401,8 @@ internal sealed class CastleService
         if (Core.EntityManager.HasComponent<CastleTerritoryBlocks>(territoryEntity))
             size = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territoryEntity).Length;
 
-        string region = territoryEntity.TryGetComponent<TerritoryWorldRegion>(out var twr)
-            ? RegionName(twr.Region) : "Unknown";
+        // Real region name, or null for genuine out-of-bounds (→ '-' sentinel on the wire via Wire.Region).
+        string region = ResolveTerritoryRegion(territoryEntity);
 
         var heart = ct.CastleHeart;
         if (!heart.Exists())

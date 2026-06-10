@@ -66,9 +66,10 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 9):** the shapes below are **IMPLEMENTED** and live as of Faust 0.9.0 —
+> **Status (ApiVersion 10):** the shapes below are **IMPLEMENTED** and live as of Faust 0.10.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
-> positions (#1, carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`),
+> positions (#1, carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`, plus the
+> activity-analytics charts `hours` / `daily` / `newplayers` / `sessions` added in 0.10.0),
 > `castles` (full-map list, `allcastles`), and `decay` (claimed castles by soonest-decay,
 > `decaywatch`). `objectscan` (#5) is
 > still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
@@ -163,9 +164,12 @@ Admin-default (own feature key `decaywatch`); the housekeeping view (which castl
 ```
 - `x`/`z` are world coordinates (one decimal). `tindex` is the territory the player is standing
   in, or `-1` in the open world.
-- `region` (ApiVersion ≥8) is the player's territory region (`Wire.Safe`, `_`→space on display),
-  or `-` in the open world / no region. The client can't map a far-away player's territory→region
-  itself (those territory entities aren't replicated to it), so the server supplies it.
+- `region` (ApiVersion ≥8) is the player's **world-map region** at their position (`Wire.Safe`,
+  `_`→space on display), or `-` when outside every region. **Resolved from world position by
+  point-in-polygon over the map's `WorldRegionPolygon` set (fixed in 0.10.0)** — it no longer
+  requires the player to be standing on a castle plot, so a player roaming the open world now reports
+  their region (Farbane Woods, Dunley Farmlands, …) and not a blank. The client can't compute this
+  itself (those region/territory entities aren't replicated to it), so the server supplies it.
 - **Rendering is the open problem** (design §8): BCH draws these on its own map overlay, or Faust
   drives server-side MapIcon reveal — decide via spike. The data is ready either way.
 
@@ -195,9 +199,12 @@ heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinc
 - This is the powerful raid-intel feature: defaults to **AdminOnly**, and is a natural one to price
   (`CostItemGuid`) or PvP-gate (`Availability=PvPOnly`) via the admin-control axes.
 
-### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`)
-`.faust api stats <kind> [page]` — `<kind>` ∈ `playtime` | `concurrency` (live); `kills` |
-`resources` are planned (need kill tracking / container scans).
+### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`, `hours`, `daily`, `newplayers`, `sessions`)
+`.faust api stats <kind> [arg]` — the `<arg>` slot is a **page** (`playtime`/`concurrency`), a
+**player** `<name|steamId>` scope (`hours`/`sessions`), or a **day window** (`daily`/`newplayers`),
+parsed per-kind. All share the one `stats` feature gate. `kills` | `resources` are still planned.
+
+**Leaderboard + concurrency series** (paged, ApiVersion ≥8):
 ```
 [FAUST:stat] kind=playtime rank=<n> steam=<id> name=<wire_name> value=<minutes>   ; leaderboard rows
 [FAUST:stat] kind=concurrency t=<unixUtc> avg=<count>                              ; time-series points (for #9 graphs)
@@ -205,10 +212,68 @@ heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinc
 ```
 - `playtime`: total minutes per player (descending), from the session log.
 - `concurrency`: an online-player-count sample recorded at **each connect/disconnect** (event-
-  driven, not a fixed interval), oldest→newest, capped to the most recent 200 points. `avg` is the
-  sampled count at time `t`. BCH renders leaderboards as tables and concurrency as **graphs** (#9).
-- Both are derived from `FaustStore`; they accumulate from the moment Faust is installed (no
-  history before that).
+  driven, not a fixed interval — flat periods produce no points, so the client must hold-last-value
+  between samples), oldest→newest, the **full stored history** (bounded by `MaxConcurrencyPoints`,
+  default 4000), **paged** like the other lists (page 1 = oldest). `avg` is the sampled count at time
+  `t`. BCH renders leaderboards as tables and concurrency as **graphs** (#9). For long-range "how busy
+  over time" the `daily` series below is the cleaner signal.
+
+**Activity analytics** (ApiVersion ≥10) — time-resolved aggregations over the same session log, each
+its own shape so BCH adds a chart per shape and **hides** any shape Faust doesn't emit:
+
+`.faust api stats hours [<name|steamId>]` — accumulated playtime **minutes per UTC hour-of-day**
+(24 buckets), server-wide or for one player. Single line, no trailer:
+```
+[FAUST:hours] scope=<server|steamId> h00=<min> h01=<min> … h23=<min>
+```
+- Sessions are **sliced at hour boundaries**, so a session spanning 22:30→01:15 feeds hours 22/23/0/1
+  — a true "when is the server / this player active" profile, not just a connect-time tally.
+
+`.faust api stats daily [days=14]` — per-day **DAU** (distinct players online) and **play-minutes**
+for the last N days (clamped 1–90), oldest→newest, un-paged:
+```
+[FAUST:daily] day=<unixUtcMidnight> dau=<int> minutes=<int>   ; one row per day in the window
+[FAUST:end] cmd=daily count=<n>
+```
+- Playtime is sliced at UTC midnight; a player counts toward a day's DAU if any session overlapped it.
+  Every day in the window emits a row (zero-activity days included), so `count` = the day span.
+
+`.faust api stats newplayers [days=30]` — per-day count of players whose **first recorded session**
+falls on that day (growth/retention), last N days (clamped 1–90), oldest→newest, un-paged:
+```
+[FAUST:newplayers] day=<unixUtcMidnight> new=<int>   ; one row per day in the window
+[FAUST:end] cmd=newplayers count=<n>
+```
+- First-seen is bounded by retained data (`SessionRetentionDays`): on a pruned server, growth before
+  the retention window is under-counted.
+
+`.faust api stats sessions [<name|steamId>]` — **session-length distribution** (four bucket counts),
+server-wide or for one player. Single line, no trailer:
+```
+[FAUST:sessions] scope=<server|steamId> lt15=<n> m15_60=<n> h1_3=<n> gt3h=<n>
+```
+- Buckets are `<15m` / `15–60m` / `1–3h` / `3h+` by session duration.
+
+- An unresolvable player scope (`hours`/`sessions`) or unknown `<kind>` → `[FAUST:err]
+  code=notfound|badtarget feature=stats`. The `daily`/`newplayers` end trailers carry **no `page=`
+  token** (the whole fixed window ships at once).
+
+**Interpretation caveats (BCH should label these for admins):**
+- **All hour/day bucketing is UTC.** `hours` (h00…h23), `daily`/`newplayers` `day=` (UTC midnight),
+  and `pinfo peakhour` are all **UTC** — the client should localize for display, or a US/EU admin will
+  read "peak hour = 03:00" and be confused.
+- **`newplayers` / `pinfo firstseen` mean "first seen by Faust," not true first join.** All series are
+  derived from `FaustStore` and accumulate from the moment Faust was installed — there is no history
+  before that. So **right after install, returning veterans register as "new"** (their first post-install
+  session looks like a first-seen) and the new-players chart spikes artificially. Label it "new to
+  tracking since <install>," not "account created."
+- **`newplayers` is only reliable with session retention disabled.** If the server sets
+  `SessionRetentionDays` > 0, pruning drops a veteran's early sessions, so their earliest *retained*
+  session re-registers them as "new." Treat `newplayers` as meaningful only when retention is off
+  (the default), and read all windows (`daily`/`hours`/`playtime`) as bounded by the retention window.
+- **`peakhour` (pinfo) and `hours` (stats) measure different things.** `peakhour` is the hour with the
+  most **logins** (by connect time); `hours` is accumulated **playtime minutes** per hour (sessions
+  sliced at hour boundaries). They can legitimately disagree.
 
 ---
 
@@ -223,6 +288,10 @@ heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinc
   `"1h"`. BCH parses formatting client-side.
 - **Wire-safe labels** — no spaces in token values; use `_`→space on display
   (the Uriel convention). Avoid `=`, `;`, `:` inside values.
+- **`region=` has ONE canonical "no region" sentinel: `-`.** Every region-bearing line
+  (`positions`, `castleinfo`, `castles`, `decay`, `plots`) emits `region=-` for the open world /
+  out-of-bounds / unmapped (and otherwise the wire-safe region name). As of 0.10.0 the literal
+  `None`/`Unknown` no longer leak through — test only for `-` (or empty) as "no region."
 - **Errors:** `[FAUST:err] code=<code> [feature=<f>] [item=<guid>] [qty=<n>] [secs=<n>]`
   with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound | badtarget |
   blocked | schedule | pvp | window | locked | notnear`. BCH surfaces a friendly message and the relevant detail:

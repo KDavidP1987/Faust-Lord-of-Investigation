@@ -30,8 +30,10 @@ internal static class HelpCommands
                 break;
             case "server":
                 ctx.Reply("SERVER: '.faust api stats playtime' — top players by total playtime; " +
-                          "'.faust api stats concurrency' — server population history (BCH graphs). " +
-                          "Kills/resource leaderboards are planned.");
+                          "'.faust api stats concurrency' — population history; '.faust api stats hours " +
+                          "[player]' — activity by hour-of-day; '.faust api stats daily [days]' — DAU + " +
+                          "play-minutes; '.faust api stats newplayers [days]' — first-seen growth; " +
+                          "'.faust api stats sessions [player]' — session-length spread (BCH charts).");
                 break;
             case "admin":
                 ctx.Reply("ADMIN: per-feature access/cost/cooldown/window/PvP/unlock live in " +

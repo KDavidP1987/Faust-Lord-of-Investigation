@@ -10,7 +10,7 @@ as structured data consumed by the **BloodCraftHub** client mod and rendered in 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.9.0)
+## ⚠ Status: pre-1.0 — early data release (0.10.0)
 
 Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
 queries — **castle/plot info, plot availability, player info, online positions**. Added since:
@@ -22,7 +22,9 @@ overrides, **unlock criteria** (a feature opens only after defeating a configure
 or an admin grant), and a **proximity requirement** (usable only within range of a configured
 object); the **full server castle map** (`castles`) + position **regions** (0.8.0); and a **decay
 watch** (`decay`, claimed castles by soonest-to-decay) plus **passive-collection controls** (0.9.0 —
-admins bound or switch off what Faust collects in the background, for performance). 0.6.0 added
+admins bound or switch off what Faust collects in the background, for performance); and **activity
+analytics** (0.10.0 — chart-ready `stats hours`/`daily`/`newplayers`/`sessions` over the session log).
+0.6.0 added
 **`castleresources` (#6)**. The persistence, admin-control, and resource paths compile clean but are
 **pending a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and
 `objectscan` (#5) — which the design keeps client-side (BloodCraftHub reads nearby entities; server
@@ -75,6 +77,7 @@ Admins control Faust on **two independent axes**:
 | 1 | Online player positions (with region) | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
 | 8 | Server stats (playtime leaderboard, concurrency series) | Players | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
+| 8 | Activity analytics (hour-of-day, daily DAU/minutes, new-players, session-length) | Players | ✅ `stats hours\|daily\|newplayers\|sessions` (Raphael charts) |
 | 5 | Nearby object scan | Players (Free) | client-side by design — server only if priced |
 | 9 | Visual graphs | — | rendered client-side in BloodCraftHub |
 

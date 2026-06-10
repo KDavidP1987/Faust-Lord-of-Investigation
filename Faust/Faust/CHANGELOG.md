@@ -3,6 +3,24 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.10.0 (2026-06-10)
+
+- **New: activity charts for admins** — four new `.faust api stats` views that turn Faust's session
+  history into graphs: **`hours`** (when is the server busy, by hour of day), **`daily`** (daily active
+  players + play-minutes), **`newplayers`** (new arrivals per day), and **`sessions`** (how long people
+  play per sit-down). Each works server-wide or for one player, and renders as a chart in compatible
+  client UIs. Gated by the same `stats` permission you already control.
+- **Fixed: player-map regions for everyone, not just players on a plot.** The online-player map now
+  shows each player's map region (Farbane Woods, Dunley Farmlands, …) based on **where they actually
+  are**, instead of only showing a region for players standing on a castle plot. Players out exploring
+  no longer show a blank region.
+- **Fixed: consistent "no region" for out-of-bounds plots.** Castle/plot lists used to show a raw
+  `None`/`Unknown` for territories outside the normal map (e.g. the admin island); they now show the
+  same "—" placeholder the rest of the UI uses.
+- **Improved: full server-population history.** The population/concurrency graph is no longer capped to
+  the most recent ~200 data points — it now serves the whole stored history (paged).
+- Note: still an early release — these haven't been validated in a live session yet.
+
 ## 0.9.0 (2026-06-10)
 
 - **New: `.faust api decay`** — claimed castles ranked by **soonest-to-decay**, with each owner's

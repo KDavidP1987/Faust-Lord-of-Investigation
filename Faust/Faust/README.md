@@ -54,6 +54,8 @@ every query also works from chat.
 - **Enemy castle resource totals** — sum everything stashed in a castle *(admin-default; a natural
   one to price or restrict to PvP)*.
 - **Server stats** — a playtime leaderboard and a server-population history, ready for graphs.
+- **Activity analytics** — chart-ready breakdowns of when people play (by hour of day), daily active
+  players + play-minutes, new arrivals per day, and how long sessions last — server-wide or per player.
 
 **Every feature is independently controlled by the admin** — Faust is never all-or-nothing, and
 intel is never free unless the admin makes it so. Per feature you can set:
@@ -123,6 +125,10 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api positions [page]` | Locations (and regions) of online players *(admin-default)* |
 | `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle *(admin-default; great to price/PvP-gate)* |
 | `.faust api stats <playtime\|concurrency> [page]` | Playtime leaderboard / server population history |
+| `.faust api stats hours [player]` | Activity by hour-of-day (24 buckets) — server-wide or one player |
+| `.faust api stats daily [days]` | Daily active players + play-minutes for the last N days |
+| `.faust api stats newplayers [days]` | New arrivals (first seen) per day |
+| `.faust api stats sessions [player]` | Session-length spread (`<15m` / `15–60m` / `1–3h` / `3h+`) |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |
 | `.faust` · `.faust help [topic]` | Overview / topic-by-topic help |

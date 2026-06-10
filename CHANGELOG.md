@@ -7,6 +7,36 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.8.0] - 2026-06-10
+
+### Added — full server castle map + position regions (Raphael "All Plots")
+
+Two BCH/Raphael-facing wire additions, one ApiVersion bump. **ApiVersion → 8** (additive; an older
+client ignores the new field/endpoint).
+
+- **`.faust api castles [page]`** — every territory, **claimed AND open**, largest first, paged
+  (20/page). Reuses the exact `[FAUST:castle]` field set and tag as `castleinfo` (Raphael
+  disambiguates a single lookup — one row, no trailer — from the list — N rows + `[FAUST:end]
+  cmd=castles`). Powers Raphael's **All Plots** tab (the full-map owner/region/size/state/decay view).
+  `plots` returns only *open* territories and `castleinfo` is one-at-a-time; this is the whole-map list.
+  - New feature key **`allcastles`**, default **AdminOnly** — its own gateable/priceable unit,
+    advertised in the `[FAUST:version]` handshake. Auto-enrolls in `.faust admin` grant/block/schedule.
+  - `CastleService.GetAllTerritories()` enumerates all `CastleTerritory` entities via `BuildInfo`.
+- **`region=` on `[FAUST:pos]`** — each online-player position row now carries the player's territory
+  region (`Wire.Safe`; `-` in the open world). The client can't map a far-away player's
+  territory→region itself (those entities aren't replicated to it), so the server supplies it; lights
+  up Raphael's Player Positions **Region** column.
+  - `CastleService` caches a territory-index→region map (built with the block map; region layout is
+    static at runtime) and exposes `GetRegionForTerritory(int)`.
+- Contract (`docs/BCH_INTEGRATION_CONTRACT.md`) updated: handshake `allcastles` token, `positions`
+  `region=` field, and a new `allcastles`/`castles` section. Mirror: Raphael's `FAUST_API_REQUESTS.md`.
+
+### Notes
+
+- Compiles clean (0 warnings). Not yet validated on a live server — needs an in-game pass (`.faust api
+  castles`, confirm claimed + open rows and the paging trailer; `.faust api positions`, confirm
+  `region=` populates and reads `-` in the open world).
+
 ## [0.7.0] - 2026-06-09
 
 ### Added — proximity requirement (admin-control axis 7)

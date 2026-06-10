@@ -3,6 +3,15 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.8.0 (2026-06-10)
+
+- **New: `.faust api castles`** — the **full server castle map**: every territory, claimed and open,
+  with owner, region, size, state, decay and online status, in one paged list. Defaults to admin-only.
+  Powers BloodCraftHub's "All Plots" tab.
+- **Player positions now include region** — the online-player map data now says which region each
+  player is in (handy when they're far across the map).
+- Note: still an early release — these haven't been validated in a live session yet.
+
 ## 0.7.0 (2026-06-09)
 
 - **New: tie a feature to a place.** Admins can require players to be **near a specific object** to

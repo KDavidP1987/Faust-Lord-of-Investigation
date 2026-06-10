@@ -108,6 +108,7 @@ internal static class Settings
     public const string ObjectScan = "objectscan";           // #5 nearby object info
     public const string CastleResources = "castleresources"; // #6 enemy castle resource totals (PvP)
     public const string Stats = "stats";                     // #8 server stats / leaderboards
+    public const string AllCastles = "allcastles";           // full server castle map (every territory)
 
     public static ConfigEntry<bool> Enabled { get; private set; }
     public static ConfigEntry<bool> AuditQueries { get; private set; }
@@ -141,6 +142,7 @@ internal static class Settings
         Bind(config, ObjectScan, AccessLevel.Players, DeliveryMode.Free);
         Bind(config, CastleResources, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Stats, AccessLevel.Players, DeliveryMode.ServerMediated);
+        Bind(config, AllCastles, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
     }
 
     static void Bind(ConfigFile config, string key, AccessLevel defaultAccess, DeliveryMode defaultDelivery)

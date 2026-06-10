@@ -40,9 +40,11 @@ every query also works from chat.
 - **Castle & plot info** — a plot's owner, region, size, decay state & time, and the owner's
   online / last-online.
 - **Plot availability** — open building plots across the whole map, largest first.
+- **Full castle map** — every territory (claimed + open) in one list: owner, region, size, state,
+  decay, online *(admin-default)*.
 - **Player info** — online state, last-online, and (tracked by Faust over time) total playtime,
   session count, logins per week, and peak play hour.
-- **Online player positions** *(admin-default, PvP-sensitive)*.
+- **Online player positions** *(admin-default, PvP-sensitive)* — now with each player's region.
 - **Enemy castle resource totals** — sum everything stashed in a castle *(admin-default; a natural
   one to price or restrict to PvP)*.
 - **Server stats** — a playtime leaderboard and a server-population history, ready for graphs.
@@ -109,8 +111,9 @@ driven by the BloodCraftHub UI, but each works from chat too.
 |---|---|
 | `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, size, decay state & time, owner online/last-online |
 | `.faust api plots [page]` | Open building plots across the map, largest first |
+| `.faust api castles [page]` | Every territory (claimed + open) — owner, region, size, state, decay, online *(admin-default)* |
 | `.faust api pinfo <name\|steamId>` | A player's online state, last-online, **playtime, sessions, logins/week & peak hour** (yourself always; others admin-gated) |
-| `.faust api positions [page]` | Locations of online players *(admin-default)* |
+| `.faust api positions [page]` | Locations (and regions) of online players *(admin-default)* |
 | `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle *(admin-default; great to price/PvP-gate)* |
 | `.faust api stats <playtime\|concurrency> [page]` | Playtime leaderboard / server population history |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
@@ -141,7 +144,7 @@ effect on server restart.
 | Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
-`objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
+`allcastles`, `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
 
 ### Live admin controls (no restart)
 

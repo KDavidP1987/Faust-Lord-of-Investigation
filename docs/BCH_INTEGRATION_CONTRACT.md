@@ -37,7 +37,8 @@ with one line:
 ```
 [FAUST:version] api=<int> plugin=<semver> ready=1 \
     playerpositions=<acc>:<cost> castleinfo=<acc>:<cost> playerinfo=<acc>:<cost> \
-    plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost>
+    plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
+    allcastles=<acc>:<cost>
 ```
 
 (Single line — shown wrapped here for readability.)
@@ -65,9 +66,10 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 7):** the shapes below are **IMPLEMENTED** and live as of Faust 0.7.0 —
+> **Status (ApiVersion 8):** the shapes below are **IMPLEMENTED** and live as of Faust 0.8.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
-> positions (#1), resources (#6), and stats (#8: `playtime` + `concurrency`). `objectscan` (#5) is
+> positions (#1, now carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`),
+> and `castles` (the full-map list, gated by the new `allcastles` feature). `objectscan` (#5) is
 > still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
 > Faust only if an admin prices it). A `-1` in any numeric field is the "not tracked / none recorded
 > yet" sentinel.
@@ -103,6 +105,23 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 [FAUST:end] cmd=plots page=<cur>/<total> count=<n>
 ```
 
+### `allcastles` (full server map) — IMPLEMENTED (ApiVersion ≥8)
+`.faust api castles [page]` — **every** territory (claimed AND open), largest first. Admin-default
+(own feature key `allcastles`); the full-map view that powers BCH's "All Plots" tab. `plots` returns
+only *open* territories and `castleinfo` is one-at-a-time — this is the paged whole-map list.
+```
+[FAUST:castle] tindex=<int> owner=<wire_name> steam=<id> region=<wire_name> size=<blocks> \
+    state=<unclaimed|sealed|fueled|decaying> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc>
+…rows…
+[FAUST:end] cmd=castles page=<cur>/<total> count=<n>
+```
+- **Reuses the `[FAUST:castle]` tag** (identical field set to `castleinfo`). BCH disambiguates by the
+  in-flight query: a single `castleinfo` lookup emits one `[FAUST:castle]` with **no** end trailer
+  and commits immediately; `castles` emits N rows **followed by** `[FAUST:end] cmd=castles`.
+- Unclaimed (heart-less) territory row: `owner=_ steam=0 region=<name> size=<blocks> state=unclaimed
+  decay=0 online=0 lastonline=0` (same convention as `castleinfo` for an open plot). `decay=-1` when
+  `state=sealed`. An empty server still sends `[FAUST:end] cmd=castles page=1/1 count=0`.
+
 ### `playerinfo` (#3) — IMPLEMENTED
 `.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the
 `playerinfo` feature access (AdminOnly by default). Name lookups must be unique (exact name wins).
@@ -122,12 +141,15 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 ### `playerpositions` (#1) — IMPLEMENTED (data); rendering is BCH-side
 `.faust api positions [page]` — admin-default. One row per **online** player.
 ```
-[FAUST:pos] steam=<id> name=<wire_name> x=<f> z=<f> tindex=<int>
+[FAUST:pos] steam=<id> name=<wire_name> x=<f> z=<f> tindex=<int> region=<wire_name>
 …rows…
 [FAUST:end] cmd=positions page=<cur>/<total> count=<n>
 ```
 - `x`/`z` are world coordinates (one decimal). `tindex` is the territory the player is standing
   in, or `-1` in the open world.
+- `region` (ApiVersion ≥8) is the player's territory region (`Wire.Safe`, `_`→space on display),
+  or `-` in the open world / no region. The client can't map a far-away player's territory→region
+  itself (those territory entities aren't replicated to it), so the server supplies it.
 - **Rendering is the open problem** (design §8): BCH draws these on its own map overlay, or Faust
   drives server-side MapIcon reveal — decide via spike. The data is ready either way.
 

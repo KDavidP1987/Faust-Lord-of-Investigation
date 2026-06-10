@@ -21,20 +21,22 @@ namespace Faust.Commands;
 /// [FAUST:err] line. The reserved cost/cooldown is committed via gate.Commit ONLY after a real
 /// result, so an empty/notfound lookup is never charged.
 ///
-/// ApiVersion 7: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
-/// (#1), resources (#6) — server stats (#8: playtime + concurrency), and the full admin-control
-/// gate (block/schedule/PvP/window-period/cost + unlock criteria + proximity-to-object). Deny
-/// codes: blocked, schedule, pvp, window, locked, notnear. Bump whenever the wire grows.
+/// ApiVersion 8: the investigation queries — castleinfo (#2), plots (#4), pinfo (#3), positions
+/// (#1, now carrying region=), resources (#6), the full-map castles list (allcastles) — server
+/// stats (#8: playtime + concurrency), and the full admin-control gate (block/schedule/PvP/
+/// window-period/cost + unlock criteria + proximity-to-object). Deny codes: blocked, schedule,
+/// pvp, window, locked, notnear. Bump whenever the wire grows.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 7;
+    const int ApiVersion = 8;
 
     static readonly string[] FeatureOrder =
     {
         Settings.PlayerPositions, Settings.CastleInfo, Settings.PlayerInfo,
         Settings.PlotAvailability, Settings.ObjectScan, Settings.CastleResources, Settings.Stats,
+        Settings.AllCastles,
     };
 
     // ---- Foundation: handshake + probe ----
@@ -89,12 +91,26 @@ internal static class ApiCommands
         if (tindex < 0 || !Core.Castle.TryGetTerritory(tindex, out var t))
         { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.CastleInfo}"); return; }
 
-        ctx.Reply(
-            $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
-            $"steam={t.OwnerSteamId} region={Wire.Safe(t.Region)} size={t.SizeBlocks} " +
-            $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
-            $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}");
+        // A single lookup emits one [FAUST:castle] with NO end trailer (BCH commits immediately);
+        // the castles list reuses the same row + a [FAUST:end] cmd=castles trailer.
+        ctx.Reply(CastleRow(t));
         FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- Full server castle map: every territory (claimed + open), paged ----
+
+    [Command("castles", description: "BCH: every territory (claimed + open), full map (paged). Usage: .faust api castles [page]")]
+    public static void Castles(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.AllCastles);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var all = Core.Castle.GetAllTerritories();
+        var rows = new List<string>(all.Count);
+        foreach (var t in all) rows.Add(CastleRow(t));
+
+        // One ctx.Reply per row + a [FAUST:end] cmd=castles trailer (never \n-join a page).
+        if (Wire.SendPage(ctx, "castles", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
     // ---- #4 Plot availability ----
@@ -213,7 +229,7 @@ internal static class ApiCommands
         var rows = new List<string>(positions.Count);
         foreach (var p in positions)
             rows.Add($"[FAUST:pos] steam={p.SteamId} name={Wire.Safe(p.Name)} " +
-                     $"x={F(p.X)} z={F(p.Z)} tindex={p.TerritoryIndex}");
+                     $"x={F(p.X)} z={F(p.Z)} tindex={p.TerritoryIndex} region={RegionWire(p.Region)}");
 
         if (Wire.SendPage(ctx, "positions", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
@@ -223,7 +239,18 @@ internal static class ApiCommands
     static Unity.Mathematics.float3 SenderPos(ChatCommandContext ctx) =>
         ctx.Event.SenderCharacterEntity.Read<LocalToWorld>().Position;
 
+    /// <summary>One [FAUST:castle] row — shared by single castleinfo lookups and the castles list.
+    /// Unclaimed (heart-less) territory yields owner=_ steam=0 online=0 lastonline=0 (BuildInfo defaults).</summary>
+    static string CastleRow(in CastleService.TerritoryInfo t) =>
+        $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
+        $"steam={t.OwnerSteamId} region={Wire.Safe(t.Region)} size={t.SizeBlocks} " +
+        $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
+        $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}";
+
     static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>Region token for [FAUST:pos]: wire-safe name, or '-' for the open world / no region.</summary>
+    static string RegionWire(string region) => string.IsNullOrEmpty(region) ? "-" : Wire.Safe(region);
 
     /// <summary>Logins/week with one decimal; the -1 "not tracked" sentinel stays a bare -1.</summary>
     static string Freq(double v) => v < 0 ? "-1" : v.ToString("0.0", CultureInfo.InvariantCulture);

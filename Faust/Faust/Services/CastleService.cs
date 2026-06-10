@@ -51,23 +51,36 @@ internal sealed class CastleService
 
     // Lazily-built block-coord -> territory-index map (CastleTerritoryService pattern).
     Dictionary<int2, int> _blockToTerritory;
+    // Lazily-built territory-index -> region name (the map's region layout never changes at runtime).
+    Dictionary<int, string> _territoryRegion;
 
     void EnsureBlockMap()
     {
         if (_blockToTerritory != null) return;
         _blockToTerritory = new Dictionary<int2, int>();
+        _territoryRegion = new Dictionary<int, string>();
         var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
         try
         {
             for (int i = 0; i < territories.Length; i++)
             {
                 var idx = territories[i].Read<CastleTerritory>().CastleTerritoryIndex;
+                if (territories[i].TryGetComponent<TerritoryWorldRegion>(out var twr))
+                    _territoryRegion[idx] = RegionName(twr.Region);
                 var blocks = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territories[i]);
                 for (int b = 0; b < blocks.Length; b++)
                     _blockToTerritory[blocks[b].BlockCoordinate] = idx;
             }
         }
         finally { territories.Dispose(); }
+    }
+
+    /// <summary>Region name of a territory index, or null for the open world / no region (-1).</summary>
+    public string GetRegionForTerritory(int territoryIndex)
+    {
+        if (territoryIndex < 0) return null;
+        EnsureBlockMap();
+        return _territoryRegion.TryGetValue(territoryIndex, out var r) ? r : null;
     }
 
     static float3 ConvertPosToGrid(float3 pos) =>
@@ -144,6 +157,22 @@ internal sealed class CastleService
                 if (ct.CastleHeart.Exists()) continue; // claimed -> not a free plot
                 result.Add(BuildInfo(territories[i], ct));
             }
+        }
+        finally { territories.Dispose(); }
+        result.Sort((a, b) => b.SizeBlocks.CompareTo(a.SizeBlocks));
+        return result;
+    }
+
+    /// <summary>Every territory — claimed AND open — largest first. The full server castle map
+    /// ("All Plots"); the API layer pages it into [FAUST:castle] rows for BCH.</summary>
+    public List<TerritoryInfo> GetAllTerritories()
+    {
+        var result = new List<TerritoryInfo>();
+        var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < territories.Length; i++)
+                result.Add(BuildInfo(territories[i], territories[i].Read<CastleTerritory>()));
         }
         finally { territories.Dispose(); }
         result.Sort((a, b) => b.SizeBlocks.CompareTo(a.SizeBlocks));

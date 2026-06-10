@@ -35,6 +35,7 @@ internal sealed class PlayerInfoService
         public float X { get; init; }
         public float Z { get; init; }
         public int TerritoryIndex { get; init; } // -1 if in open world
+        public string Region { get; init; }      // territory's region; null in the open world
     }
 
     public bool TryGetPlayer(ulong steamId, out PlayerSnapshot snapshot)
@@ -81,13 +82,15 @@ internal sealed class PlayerInfoService
             var charEntity = u.LocalCharacter.GetEntityOnServer();
             if (!charEntity.TryGetComponent<LocalToWorld>(out var ltw)) continue;
             var pos = ltw.Position;
+            int tindex = Core.Castle.GetTerritoryIndexAt(pos);
             result.Add(new PlayerPosition
             {
                 SteamId = u.PlatformId,
                 Name = u.CharacterName.ToString(),
                 X = pos.x,
                 Z = pos.z,
-                TerritoryIndex = Core.Castle.GetTerritoryIndexAt(pos),
+                TerritoryIndex = tindex,
+                Region = Core.Castle.GetRegionForTerritory(tindex),
             });
         }
         return result;

@@ -45,8 +45,9 @@ them; each is independent, and BloodCraftHub is an optional companion, never req
 | 7 | **Permission/cost/control gate** (`FaustAccessGate`) | — | ✅ all 7 admin-control axes — see [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) |
 | 2 | Castle/plot info (owner, region, size, decay state & time, last-online) | Players | ✅ `castleinfo` |
 | 4 | Plot availability (open plots by size) | Players | ✅ `plots` |
+| — | Full server castle map (every territory, claimed + open) | AdminOnly | ✅ `castles` (`allcastles` — Raphael "All Plots") |
 | 3 | Player info (online, last-online, playtime, frequency, peak hour) | AdminOnly (others) | ✅ `pinfo` (FaustStore persistence) |
-| 1 | Online player positions | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
+| 1 | Online player positions (with region) | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
 | 8 | Server stats (playtime leaderboard, concurrency series) | Players | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
 | 5 | Nearby object scan | Players (Free) | client-side by design — server only if priced |

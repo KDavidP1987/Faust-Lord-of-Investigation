@@ -119,6 +119,19 @@ internal static class AdminCommands
         ctx.Reply($"{name} — {Core.Unlock.Describe(steam)}");
     }
 
+    [Command("showpositions", description: "EXPERIMENTAL: show online players on the native map (admins). Usage: .faust admin showpositions <on|off|status> [minutes]", adminOnly: true)]
+    public static void ShowPositions(ChatCommandContext ctx, string mode = "status", int minutes = 0)
+    {
+        if (!Core.IsReady || Core.MapMarkers is null) { ctx.Reply("Faust isn't ready yet."); return; }
+        switch (mode?.ToLowerInvariant())
+        {
+            case "on": ctx.Reply(Core.MapMarkers.Enable(minutes)); break;
+            case "off": ctx.Reply(Core.MapMarkers.Disable()); break;
+            case "status": ctx.Reply($"Map markers: {Core.MapMarkers.Describe()}"); break;
+            default: ctx.Reply("Usage: .faust admin showpositions <on|off|status> [minutes]"); break;
+        }
+    }
+
     static bool TryParseWindow(string window, out int startMin, out int endMin)
     {
         startMin = endMin = -1;

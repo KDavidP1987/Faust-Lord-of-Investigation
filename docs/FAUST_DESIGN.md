@@ -225,7 +225,7 @@ optionally limited by cost / cooldown / window / unlock / proximity).
   feeding FaustStore (the patch already exists for unlock detection; extend it). **This is a new
   PASSIVE collector → must ship with a collection toggle (see §10).** Players as a board.
 - **Soul-shard / relic tracker** — who holds / where dropped (`Relic`, `SoulshardService`). The poster
-  child for "configurable, not an exploit": AdminOnly, or steep item cost + long cooldown + PvPOnly.
+  child for the admin-controlled, per-feature model: AdminOnly, or grant it as priced/cooldowned PvP intel.
 - **Enemy power read** — target gear-score / blood quality. AdminOnly, or PvP-priced.
 - **Live combat board** — who's in PvP combat right now (`Buff_InCombat_PvPVampire`). AdminOnly / PvPOnly.
 

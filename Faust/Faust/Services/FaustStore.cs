@@ -49,6 +49,7 @@ internal sealed class FaustStore
         public long PlayMinutes { get; init; }
         public int PeakHour { get; init; }       // 0-23 (UTC); -1 if none
         public double FreqPerWeek { get; init; } // -1 if unknown
+        public int DaysIdle { get; init; }       // whole days since last seen; 0 if online; -1 if untracked
     }
 
     readonly List<Session> _sessions = new();
@@ -186,8 +187,9 @@ internal sealed class FaustStore
     public PlayerMetrics GetMetrics(ulong steam)
     {
         long now = Now;
-        long first = long.MaxValue, totalSecs = 0;
+        long first = long.MaxValue, lastEnd = 0, totalSecs = 0;
         int count = 0;
+        bool online = false;
         var hourHist = new int[24];
 
         foreach (var s in _sessions)
@@ -196,18 +198,21 @@ internal sealed class FaustStore
             count++;
             if (s.Connect < first) first = s.Connect;
             long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (s.Disconnect == 0) online = true;
+            if (end > lastEnd) lastEnd = end;
             if (end > s.Connect) totalSecs += end - s.Connect;
             int hour = DateTimeOffset.FromUnixTimeSeconds(s.Connect).UtcDateTime.Hour;
             if (hour >= 0 && hour < 24) hourHist[hour]++;
         }
 
         if (count == 0)
-            return new PlayerMetrics { FirstSeenUnix = -1, SessionCount = 0, PlayMinutes = -1, PeakHour = -1, FreqPerWeek = -1 };
+            return new PlayerMetrics { FirstSeenUnix = -1, SessionCount = 0, PlayMinutes = -1, PeakHour = -1, FreqPerWeek = -1, DaysIdle = -1 };
 
         int peakHour = 0;
         for (int h = 1; h < 24; h++) if (hourHist[h] > hourHist[peakHour]) peakHour = h;
 
         double weeks = Math.Max(1.0, (now - first) / 604800.0);
+        int daysIdle = online ? 0 : (int)((now - lastEnd) / Day);
         return new PlayerMetrics
         {
             FirstSeenUnix = first,
@@ -215,6 +220,7 @@ internal sealed class FaustStore
             PlayMinutes = totalSecs / 60,
             PeakHour = peakHour,
             FreqPerWeek = Math.Round(count / weeks, 1),
+            DaysIdle = daysIdle,
         };
     }
 
@@ -382,6 +388,224 @@ internal sealed class FaustStore
             else b3++;                       // 3 h+
         }
         return (b0, b1, b2, b3);
+    }
+
+    /// <summary>
+    /// Accumulated playtime MINUTES per UTC weekday (Monday=d[0] … Sunday=d[6]), server-wide or for
+    /// one player. Sessions are sliced at UTC midnight (like the daily series) so a session that
+    /// straddles midnight feeds both weekdays — the authoritative "by day of week" profile.
+    /// </summary>
+    public long[] GetWeekdayHistogram(ulong? steam)
+    {
+        long now = Now;
+        var secs = new long[7];
+        foreach (var s in _sessions)
+        {
+            if (steam.HasValue && s.Steam != steam.Value) continue;
+            long t = s.Connect, end = s.Disconnect == 0 ? now : s.Disconnect;
+            int guard = 0;
+            while (t < end && guard++ < MaxSliceIterations)
+            {
+                int wd = WeekdayMon0(t);
+                long sliceEnd = Math.Min(end, DayFloor(t) + Day);
+                secs[wd] += sliceEnd - t;
+                t = sliceEnd;
+            }
+        }
+        var mins = new long[7];
+        for (int i = 0; i < 7; i++) mins[i] = secs[i] / 60;
+        return mins;
+    }
+
+    /// <summary>.NET DayOfWeek (Sunday=0…Saturday=6) → Monday=0…Sunday=6 (UTC), matching the wire's d0=Mon.</summary>
+    static int WeekdayMon0(long unix)
+    {
+        int dow = (int)DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime.DayOfWeek;
+        return (dow + 6) % 7;
+    }
+
+    /// <summary>
+    /// One player's UTC-day playtime MINUTES for the last <paramref name="days"/> days — one entry per
+    /// day the player was actually online (zero-days omitted), oldest→newest. Playtime is sliced at
+    /// UTC midnight (same convention as the server daily series). Powers a per-player daily/weekly trend.
+    /// </summary>
+    public List<(long dayMidnightUtc, long minutes)> GetPlayerDailySeries(ulong steam, int days)
+    {
+        long now = Now;
+        long start = DayFloor(now) - (long)(days - 1) * Day;
+        var secs = new long[days];
+        foreach (var s in _sessions)
+        {
+            if (s.Steam != steam) continue;
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (end <= start) continue;
+            long t = Math.Max(s.Connect, start);
+            int guard = 0;
+            while (t < end && guard++ < days + 1)
+            {
+                long dayMid = DayFloor(t);
+                int idx = (int)((dayMid - start) / Day);
+                long sliceEnd = Math.Min(end, dayMid + Day);
+                if (idx >= 0 && idx < days) secs[idx] += sliceEnd - t;
+                t = sliceEnd;
+            }
+        }
+        var result = new List<(long, long)>();
+        for (int i = 0; i < days; i++)
+            if (secs[i] > 0) result.Add((start + (long)i * Day, secs[i] / 60));
+        return result;
+    }
+
+    // ---- holistic population health (retention / active counts / recency / concurrency summary) ----
+
+    /// <summary>Per-player (firstSeen, lastActivity) across the whole retained log — the basis for the
+    /// population, retention and recency rollups. Open sessions extend lastActivity to "now".</summary>
+    Dictionary<ulong, (long first, long last)> PlayerSpans()
+    {
+        long now = Now;
+        var d = new Dictionary<ulong, (long, long)>();
+        foreach (var s in _sessions)
+        {
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (!d.TryGetValue(s.Steam, out var span)) d[s.Steam] = (s.Connect, end);
+            else d[s.Steam] = (Math.Min(span.Item1, s.Connect), Math.Max(span.Item2, end));
+        }
+        return d;
+    }
+
+    public readonly struct PopulationStats
+    {
+        public int Dau { get; init; } public int Wau { get; init; } public int Mau { get; init; }
+        public int NewToday { get; init; } public int ReturningToday { get; init; }
+        public double Stickiness { get; init; }                 // DAU/MAU, 0..1
+        public double D1 { get; init; } public double D7 { get; init; } public double D30 { get; init; } // retention rates
+    }
+
+    /// <summary>Active-population + retention headline. DAU = active in the current UTC day; WAU/MAU =
+    /// active within the last 7/30 days. Retention dN = of players who first appeared ≥ N days ago (so
+    /// they had the chance to return), the fraction still active ≥ N days after their first session.</summary>
+    public PopulationStats GetPopulationStats()
+    {
+        long now = Now, today = DayFloor(now);
+        var spans = PlayerSpans();
+        int dau = 0, wau = 0, mau = 0, newToday = 0;
+        int c1 = 0, r1 = 0, c7 = 0, r7 = 0, c30 = 0, r30 = 0;
+        foreach (var (first, last) in spans.Values)
+        {
+            if (last >= today) dau++;
+            if (last >= now - 7 * Day) wau++;
+            if (last >= now - 30 * Day) mau++;
+            if (first >= today) newToday++;
+            if (first <= now - 1 * Day) { c1++; if (last >= first + 1 * Day) r1++; }
+            if (first <= now - 7 * Day) { c7++; if (last >= first + 7 * Day) r7++; }
+            if (first <= now - 30 * Day) { c30++; if (last >= first + 30 * Day) r30++; }
+        }
+        int returning = Math.Max(0, dau - newToday);
+        return new PopulationStats
+        {
+            Dau = dau, Wau = wau, Mau = mau, NewToday = newToday, ReturningToday = returning,
+            Stickiness = mau > 0 ? Math.Round((double)dau / mau, 2) : 0,
+            D1 = Rate(r1, c1), D7 = Rate(r7, c7), D30 = Rate(r30, c30),
+        };
+    }
+
+    static double Rate(int n, int d) => d > 0 ? Math.Round((double)n / d, 2) : 0;
+
+    /// <summary>How many known players were last seen within 24h / 7d / 30d (cumulative), plus the
+    /// dormant remainder (&gt;30d) and the total tracked. The "who's drifting away" view.</summary>
+    public (int seen24h, int seen7d, int seen30d, int dormant, int total) GetRecencyBuckets()
+    {
+        long now = Now;
+        var spans = PlayerSpans();
+        int s24 = 0, s7 = 0, s30 = 0;
+        foreach (var (_, last) in spans.Values)
+        {
+            if (last >= now - 1 * Day) s24++;
+            if (last >= now - 7 * Day) s7++;
+            if (last >= now - 30 * Day) s30++;
+        }
+        return (s24, s7, s30, spans.Count - s30, spans.Count);
+    }
+
+    /// <summary>Peak / average / p95 of the concurrency samples in the last <paramref name="days"/> days
+    /// (0 = all stored), plus the live online count. NOTE: samples are event-driven (taken on
+    /// connect/disconnect), so `avg` is sample-weighted, not time-weighted — peak/p95 are the solid figures.</summary>
+    public (int peak, long peakT, double avg, int p95, int now) GetConcurrencySummary(int days)
+    {
+        long cutoff = days > 0 ? Now - (long)days * Day : 0;
+        var counts = new List<int>();
+        int peak = 0; long peakT = 0, sum = 0;
+        foreach (var c in _concurrency)
+        {
+            if (c.T < cutoff) continue;
+            counts.Add(c.Count); sum += c.Count;
+            if (c.Count > peak) { peak = c.Count; peakT = c.T; }
+        }
+        int n = counts.Count;
+        double avg = n > 0 ? Math.Round((double)sum / n, 1) : 0;
+        int p95 = 0;
+        if (n > 0)
+        {
+            counts.Sort();
+            int idx = (int)Math.Ceiling(0.95 * n) - 1;
+            p95 = counts[Math.Clamp(idx, 0, n - 1)];
+        }
+        return (peak, peakT, avg, p95, _online.Count);
+    }
+
+    public readonly struct PlayerRow
+    {
+        public ulong Steam { get; init; }
+        public string Name { get; init; }
+        public bool Online { get; init; }
+        public long LastOnlineUnix { get; init; }
+        public bool Active24h { get; init; }
+        public bool Active7d { get; init; }
+        public int Sessions { get; init; }
+        public long PlayMinutes { get; init; }
+        public int DaysIdle { get; init; }
+    }
+
+    /// <summary>
+    /// Per-player activity snapshot for EVERY tracked player, playtime-descending — the roster behind the
+    /// aggregate population/recency numbers (Raphael §7). Same fields Faust derives for one player in
+    /// <c>pinfo</c>, emitted for all in one paged list so a dashboard can show who's behind the totals.
+    /// </summary>
+    public List<PlayerRow> GetPlayerRoster()
+    {
+        long now = Now;
+        var agg = new Dictionary<ulong, (long first, long last, long secs, int count, bool open)>();
+        foreach (var s in _sessions)
+        {
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            long dur = Math.Max(0, end - s.Connect);
+            bool open = s.Disconnect == 0;
+            if (!agg.TryGetValue(s.Steam, out var a))
+                agg[s.Steam] = (s.Connect, end, dur, 1, open);
+            else
+                agg[s.Steam] = (Math.Min(a.first, s.Connect), Math.Max(a.last, end), a.secs + dur, a.count + 1, a.open || open);
+        }
+
+        var rows = new List<PlayerRow>(agg.Count);
+        foreach (var kv in agg)
+        {
+            var a = kv.Value;
+            bool online = _online.Contains(kv.Key) || a.open;
+            rows.Add(new PlayerRow
+            {
+                Steam = kv.Key,
+                Name = _names.TryGetValue(kv.Key, out var n) ? n : kv.Key.ToString(),
+                Online = online,
+                LastOnlineUnix = online ? now : a.last,
+                Active24h = a.last >= now - 1 * Day,
+                Active7d = a.last >= now - 7 * Day,
+                Sessions = a.count,
+                PlayMinutes = a.secs / 60,
+                DaysIdle = online ? 0 : (int)((now - a.last) / Day),
+            });
+        }
+        rows.Sort((x, y) => y.PlayMinutes.CompareTo(x.PlayMinutes));
+        return rows;
     }
 
     public int OnlineCount => _online.Count;

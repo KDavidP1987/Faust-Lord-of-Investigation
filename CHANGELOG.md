@@ -7,6 +7,122 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.13.0] - 2026-06-10
+
+### Changed — every capability now ships **AdminOnly** by default
+
+Faust is an administrative tool first: admins decide what, if anything, to grant players. The four
+features that previously defaulted to `Players` (`castleinfo`, `plotavailability`, `objectscan`, `stats`)
+now default to **AdminOnly** like the rest. Existing configs are unaffected (the default only applies to
+freshly-generated keys); admins still set any feature to `Players`/`Off` in the `.cfg`. The handshake
+reflects this (a non-admin sees `…=admin:…` for all tokens until granted).
+
+### Added — per-player query rate limit (anti-spam / perf protection)
+
+New global `[Faust] RateLimitSeconds` (default `0` = off) — a minimum number of seconds a player must
+wait between **any** two Faust queries; a violation denies with `[FAUST:err] code=ratelimit secs=<n>`.
+`RateLimitAdminsExempt` (default true) keeps admin dashboards/paging unthrottled. Enforced in
+`FaustAccessGate` as a new axis (master → block → schedule → feature → **rate limit** → unlock → access →
+…). Stops a player hammering a query and stressing the server. **ApiVersion → 12** (new deny code).
+
+### Added — layered-admin control over data resets
+
+New `[Faust.Data] ResetSteamIds` — a comma-separated SteamID allowlist of the admins permitted to run the
+**destructive** data commands (`.faust admin data clear` / `data wipe`). Empty (default) = any admin, as
+before; set it to lock data resets to senior admins on servers with tiered admin teams. Junior admins keep
+every other `.faust admin …` command and `data status`. (`Settings.MayResetData`, checked in
+`AdminDataCommands`.)
+
+### Added — `.faust api stats players` player-activity roster (Raphael §7)
+
+A single paged endpoint with one row per tracked player — the per-player data behind the aggregate
+population/recency numbers, so a dashboard can show *who* is behind the totals without N round-trips.
+```
+[FAUST:prow] steam=<id> name=<wire_name> online=<0|1> lastonline=<unixUtc> \
+    active24h=<0|1> active7d=<0|1> sessions=<n> playmins=<total> daysidle=<n>
+[FAUST:end] cmd=players page=<cur>/<total> count=<n>
+```
+`active24h`/`active7d` are the per-player booleans behind DAU/WAU; same fields as `pinfo`, playtime-
+descending. Under the `stats` gate (AdminOnly by default). New `FaustStore.GetPlayerRoster`.
+
+### Confirmed / no-op
+
+- **Per-capability admin controls (your audit):** enable/disable (`Access=Off` + master switch), item
+  cost (`CostItemGuid`+`CostQuantity`), cooldown **or** usage-count-per-period
+  (`CooldownSeconds` / `WindowSeconds`+`PeriodSeconds`+`MaxUsesPerPeriod`), and a proximity requirement
+  (`RequireNearPrefab` + `RequireNearDistance`, default **5 m**) were already fully built and gate-enforced.
+- **Raphael §3 (out-of-bounds region):** already resolved — the admin island's territory is genuinely
+  `WorldRegionType.None` (confirmed against the enum; no admin-island region exists), so Faust emits the
+  canonical `region=-` ("outside map" in Raphael). Open-world player regions resolve via the
+  world-position polygon test (a live-verify item).
+
+## [0.12.0] - 2026-06-10
+
+### Added — weekday + per-player analytics (Raphael §6) and clan composition (#clans)
+
+**ApiVersion → 11** (additive; older clients hide the new shapes/feature). Two requested Raphael
+analytics shapes plus a new clan-composition feature.
+
+- **`.faust api stats weekdays [<name|steamId>]`** — accumulated playtime **minutes per UTC weekday**
+  (`d0`=Monday … `d6`=Sunday), server-wide or per player; sessions sliced at UTC midnight like `daily`.
+  One line: `[FAUST:weekdays] scope=<server|steamId> d0=<min> … d6=<min>`. Makes the server "by day of
+  week" view authoritative and adds it per player.
+- **`.faust api stats pdaily <name|steamId> [days=90]`** — one player's UTC-day playtime for the last N
+  days (clamped 1–90), one row per online day. `[FAUST:pdaily] steam=<id> day=<unixUtcMidnight>
+  minutes=<int>` rows + `[FAUST:end] cmd=pdaily count=<n>`. The per-player analogue of `daily`
+  (player is required). The `stats` command now takes an optional second arg for the day window.
+- **`.faust api clans [page]`** — **clan composition**: a summary headline of clanned-vs-independent
+  plus a per-clan roster. New AdminOnly feature key **`clans`**, advertised in the handshake and
+  enrolled in `.faust admin` block/schedule/grant.
+  - `[FAUST:clansummary] clans=<n> clanned=<n> independent=<n> online_clanned=<n> online_independent=<n>
+    largest=<n> avg=<f>` (page 1) — counts are over **every known user** (online + offline); the
+    `online_*` pair is the currently-connected split.
+  - `[FAUST:clan] name=<wire> members=<n> online=<n> leader=<wire>` rows (members-descending) +
+    `[FAUST:end] cmd=clans`. Built live from `ClanTeam` entities + the per-user `ClanEntity` link
+    (`ClanService`); empty/disbanded clans skipped. A clanless server still sends the zeroed summary.
+
+New `FaustStore` aggregations (`GetWeekdayHistogram`, `GetPlayerDailySeries`) + a new `ClanService`.
+Contract: `docs/BCH_INTEGRATION_CONTRACT.md` (handshake `clans` token, §3 `clans` section, stats
+`weekdays`/`pdaily` shapes). No wire change to existing shapes.
+
+### Added — population-health metrics, recency, and region/clan distribution
+
+A second analytics batch (admin-dashboard headline metrics + the spatial/clan distribution views).
+Still ApiVersion 11; all under the existing `stats`/`clans` gates.
+
+- **`.faust api stats population`** — `[FAUST:population] dau wau mau new_today returning_today stickiness
+  d1 d7 d30`: active-player counts (DAU/WAU/MAU), new-vs-returning, DAU/MAU stickiness, and D1/D7/D30
+  retention. The "is the server growing or bleeding" headline.
+- **`.faust api stats recency`** — `[FAUST:recency] seen24h seen7d seen30d dormant total`: how many known
+  players are recently active vs drifting away.
+- **`.faust api stats peak [days=30]`** — `[FAUST:concsummary] peak peak_t avg p95 now`: concurrency
+  summary (peak/avg/p95 + live count) instead of only the raw point series.
+- **`.faust api stats regions [page]`** — `[FAUST:region] name players castles` rows: online-player and
+  claimed-castle distribution per map region (now that region resolves by world position).
+- **`pinfo` gains `daysidle`** — whole days since a player was last seen (0 online, -1 untracked): the
+  per-player at-risk signal next to the holistic `recency`.
+- **Clan rows gain `castles`** — territories each clan's team owns (which clans actually hold ground).
+
+New `FaustStore` rollups (`GetPopulationStats`, `GetRecencyBuckets`, `GetConcurrencySummary`, plus
+`DaysIdle` on `PlayerMetrics`); `ClanService` now counts castles per clan team.
+
+### Added — EXPERIMENTAL `.faust admin showpositions` (native-map markers, §5)
+
+Server-side admin command to put online players on the **native in-game map** (Raphael §5), via the
+**game's own attach mechanism**: it adds the marker prefab to each player character's
+`AttachMapIconsToEntity` buffer (confirmed in `ProjectM.Shared`, namespace `ProjectM`, field
+`PrefabGUID Prefab`) and lets ProjectM's `InstantiateMapIconsSystem` spawn the real networked, replicated
+icon — so the **server**, not the plugin, builds the network state (no hand-rolled `NetworkSnapshot`, so
+the client-side-faking crash risk doesn't apply). Command + lifecycle (on/off/`status`, optional
+duration auto-off, attach-on-connect, detach on disconnect/`off`/plugin-unload) are wired; the configured
+marker prefab GUID is validated against the prefab map before any attach.
+
+**Gated OFF by default** (`[Faust.MapMarkers] Enabled`) and **still unproven** — validate on a TEST
+server. The open items are spawn behaviour for far/culled players and, above all, **admin-only
+visibility**: the default `MapIcon_Player` is ally-visible, so strict admin-only viewing needs a
+purpose-built marker prefab (`MarkerPrefabGuid`) or a post-spawn `MapIconData` edit — to be tuned live.
+No wire shape; positions still come from `.faust api positions`.
+
 ## [0.11.0] - 2026-06-10
 
 ### Added — admin data management (`.faust admin data …`) + world-wipe story

@@ -5,12 +5,14 @@
 A **server-side** BepInEx IL2CPP mod for [V Rising](https://playvrising.com/) dedicated servers.
 Its single purpose is **investigation / information**: answering on-demand queries about players,
 castles, plots, objects, and server activity — delivered as `.faust` chat commands and, primarily,
-as structured data consumed by the **BloodCraftHub** client mod and rendered in its UI.
+as structured data consumed by its companion client **Raphael, Lord of Wisdom** and rendered in its
+UI. **Faust is designed to be run alongside Raphael** (the `[FAUST:*]` wire is the BloodCraftHub-family
+integration contract Raphael implements). Pre-1.0 — published for testing.
 
 > This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
 > lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.11.0)
+## ⚠ Status: pre-1.0 — early data release (0.13.0)
 
 Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
 queries — **castle/plot info, plot availability, player info, online positions**. Added since:
@@ -24,9 +26,15 @@ object); the **full server castle map** (`castles`) + position **regions** (0.8.
 watch** (`decay`, claimed castles by soonest-to-decay) plus **passive-collection controls** (0.9.0 —
 admins bound or switch off what Faust collects in the background, for performance); **activity
 analytics** (0.10.0 — chart-ready `stats hours`/`daily`/`newplayers`/`sessions` over the session log);
-and **admin data management** (0.11.0 — `.faust admin data status/clear/wipe` + a `DataNamespace` for
-per-world separation, since Faust's data is server-scoped and survives a world wipe by default).
-0.6.0 added
+**admin data management** (0.11.0 — `.faust admin data status/clear/wipe` + a `DataNamespace` for
+per-world separation, since Faust's data is server-scoped and survives a world wipe by default); and
+**weekday + per-player analytics**, **clan composition**, **population-health metrics**
+(DAU/WAU/MAU + retention, recency, concurrency peak, per-region distribution), and **experimental
+native-map player markers** (0.12.0 — `stats weekdays`/`pdaily`/`population`/`recency`/`peak`/`regions`,
+`.faust api clans`, and a gated-off `.faust admin showpositions` using the game's own map-icon attach);
+and (0.13.0) **all features now default to AdminOnly**, a per-player **query rate limit**
+(`RateLimitSeconds`), a **layered-admin allowlist** for data resets (`[Faust.Data] ResetSteamIds`), and
+the **player-activity roster** (`stats players`). 0.6.0 added
 **`castleresources` (#6)**. The persistence, admin-control, and resource paths compile clean but are
 **pending a live in-game pass**. Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and
 `objectscan` (#5) — which the design keeps client-side (BloodCraftHub reads nearby entities; server
@@ -47,13 +55,16 @@ them; each is independent, and BloodCraftHub is an optional companion, never req
 
 ## Philosophy: information under admin control
 
-Faust is **not all-or-nothing, and it is not a wallhack.** Its job is to *surface* information; **the
-administrative team decides how much of it players can see** — feature by feature. Many servers will
-run Faust purely as an **admin/moderation tool**; others expose select intel to players when it
-*improves play* — offered **freely, or limited by an item cost, a cooldown or usage window, an unlock
-requirement, or being near a specific object**. Sensitive intel (positions, enemy resources, other
-players' data) **defaults to admin-only**; opening it to players is a deliberate, server-by-server
-balance decision, never the default.
+Faust is, first and foremost, an **administrative and moderation tool** — it gives the server team the
+authoritative, global view of players, castles, plots and activity that the game itself never surfaces.
+On top of that, admins can choose to **grant** parts of it to players: as a **strategic tool** on PvP
+servers (intel that rewards engagement, optionally behind an item cost, cooldown, unlock, or location
+requirement), and as a **community-building tool** on PvE servers (sharing useful, friendly information
+that helps players coordinate and connect).
+
+The defining principle is **admin control, feature by feature.** Nothing is exposed to players unless an
+admin decides it should be. Sensitive intel (positions, enemy resources, other players' data) **defaults
+to admin-only**; opening any of it to players is a deliberate, server-by-server choice.
 
 Admins control Faust on **two independent axes**:
 
@@ -78,16 +89,20 @@ Admins control Faust on **two independent axes**:
 | # | Feature | Default access | Status |
 |---|---------|----------------|--------|
 | 7 | **Permission/cost/control gate** (`FaustAccessGate`) | — | ✅ all 7 admin-control axes — see [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) |
-| 2 | Castle/plot info (owner, region, size, decay state & time, last-online) | Players | ✅ `castleinfo` |
-| 4 | Plot availability (open plots by size) | Players | ✅ `plots` |
+| 2 | Castle/plot info (owner, region, size, decay state & time, last-online) | AdminOnly | ✅ `castleinfo` |
+| 4 | Plot availability (open plots by size) | AdminOnly | ✅ `plots` |
 | — | Full server castle map (every territory, claimed + open) | AdminOnly | ✅ `castles` (`allcastles` — Raphael "All Plots") |
 | — | Decay watch (claimed castles by soonest-to-decay) | AdminOnly | ✅ `decay` (`decaywatch`) |
 | 3 | Player info (online, last-online, playtime, frequency, peak hour) | AdminOnly (others) | ✅ `pinfo` (FaustStore persistence) |
 | 1 | Online player positions (with region) | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
-| 8 | Server stats (playtime leaderboard, concurrency series) | Players | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
-| 8 | Activity analytics (hour-of-day, daily DAU/minutes, new-players, session-length) | Players | ✅ `stats hours\|daily\|newplayers\|sessions` (Raphael charts) |
-| 5 | Nearby object scan | Players (Free) | client-side by design — server only if priced |
+| 8 | Server stats (playtime leaderboard, concurrency series) | AdminOnly | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
+| 8 | Activity analytics (hour-of-day, weekday, daily DAU/minutes, new-players, session-length, per-player daily) | AdminOnly | ✅ `stats hours\|weekdays\|daily\|newplayers\|sessions\|pdaily` (Raphael charts) |
+| 8 | Population health (DAU/WAU/MAU + retention, recency, concurrency peak/avg, region distribution) | AdminOnly | ✅ `stats population\|recency\|peak\|regions` + `pinfo daysidle` |
+| 8 | Player-activity roster (per-player active-today/week, last-seen, sessions, playtime, idle) | AdminOnly | ✅ `stats players` (Raphael §7) |
+| — | Clan composition (clanned vs independent + per-clan roster, incl. castles held) | AdminOnly | ✅ `clans` (`ClanService`) |
+| — | Native-map player markers (admin) | AdminOnly | 🚧 `showpositions` — experimental (real `AttachMapIconsToEntity` attach), off by default; admin-only visibility pending live tuning |
+| 5 | Nearby object scan | AdminOnly (Free) | client-side by design — server only if priced |
 | 9 | Visual graphs | — | rendered client-side in BloodCraftHub |
 
 *"Default access" is the **recommended starting point** — every value is admin-configurable per

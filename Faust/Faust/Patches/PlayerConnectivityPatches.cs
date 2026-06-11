@@ -29,6 +29,7 @@ internal static class OnUserConnected_Patch
             // at the next connect that has a name. Marginal effect on new-player/first-seen analytics.
             if (user.CharacterName.IsEmpty) return;
             Core.Store.OnConnect(user.PlatformId, user.CharacterName.ToString());
+            Core.MapMarkers?.OnPlayerConnect(user.PlatformId); // experimental; no-op unless active
         }
         catch (Exception ex)
         {
@@ -51,6 +52,7 @@ internal static class OnUserDisconnected_Patch
             var user = __instance.EntityManager.GetComponentData<User>(serverClient.UserEntity);
             if (user.CharacterName.IsEmpty) return;
             Core.Store.OnDisconnect(user.PlatformId);
+            Core.MapMarkers?.OnPlayerDisconnect(user.PlatformId);
         }
         catch (Exception ex)
         {

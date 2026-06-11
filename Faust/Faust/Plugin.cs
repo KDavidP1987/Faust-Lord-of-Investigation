@@ -41,6 +41,7 @@ public class Plugin : BasePlugin
     public override bool Unload()
     {
         CommandRegistry.UnregisterAssembly();
+        Core.MapMarkers?.Shutdown();  // detach any experimental map markers before unload
         Core.Store?.CloseAllOpen(); // keep the last session's playtime on a clean shutdown
         Harmony?.UnpatchSelf();
         return true;

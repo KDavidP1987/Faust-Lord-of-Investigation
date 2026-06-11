@@ -10,11 +10,12 @@ namespace Faust.Services;
 /// The single gatekeeper every BCH-facing query passes through before any data is gathered
 /// (design §3, ADMIN_CONTROL §4). Evaluation order — first failing axis denies with a specific
 /// <c>[FAUST:err] code=…</c>:
-///   master-enabled → runtime block → schedule → feature-enabled → access → PvP availability →
-///   usage (cooldown / window / period) → item cost.
+///   master-enabled → runtime block → schedule → feature-enabled → per-player rate limit →
+///   unlock → access → PvP availability → proximity → usage (cooldown / window / period) → item cost.
 ///
-/// Admins with <c>AdminsExempt=true</c> skip access / PvP / usage / cost, but NOT a master-off,
-/// a deactivated feature, or an operational block/schedule (those are server state, not a price).
+/// Admins with <c>AdminsExempt=true</c> skip access / PvP / usage / cost (and the rate limit, when
+/// RateLimitAdminsExempt), but NOT a master-off, a deactivated feature, or an operational
+/// block/schedule (those are server state, not a price).
 ///
 /// Reserve/confirm (the "never charge an empty query" rule): <see cref="TryAuthorize"/> only
 /// VERIFIES; <see cref="Commit"/> records the usage (cooldown/window) and consumes the item, and is
@@ -22,6 +23,11 @@ namespace Faust.Services;
 /// </summary>
 internal static class FaustAccessGate
 {
+    // Per-player last-query time (seconds) for the RateLimitSeconds anti-spam floor. In-memory only —
+    // a short window doesn't need persistence; cleared on restart.
+    static readonly System.Collections.Generic.Dictionary<ulong, double> _lastQuery = new();
+    static double NowSeconds => System.DateTime.UtcNow.Ticks / (double)System.TimeSpan.TicksPerSecond;
+
     internal readonly struct GateResult
     {
         public bool Allowed { get; init; }
@@ -56,6 +62,20 @@ internal static class FaustAccessGate
         var user = ctx.Event.User;
         bool isAdmin = user.IsAdmin;
         bool exempt = isAdmin && f.AdminsExempt.Value;
+
+        // Global per-player anti-spam floor (perf protection) — independent of any per-feature cooldown.
+        // Admins are exempt by default so dashboards/paging aren't throttled.
+        if (Settings.RateLimitSeconds.Value > 0 && !(isAdmin && Settings.RateLimitAdminsExempt.Value))
+        {
+            double now = NowSeconds;
+            if (_lastQuery.TryGetValue(user.PlatformId, out var last))
+            {
+                double wait = Settings.RateLimitSeconds.Value - (now - last);
+                if (wait > 0)
+                    return GateResult.Deny($"[FAUST:err] code=ratelimit feature={featureKey} secs={(int)System.Math.Ceiling(wait)}");
+            }
+            _lastQuery[user.PlatformId] = now;
+        }
 
         // Unlock criterion (progression gate). Skipped for admins (exempt) and self-queries.
         if (!exempt && !bypassAccess && !Core.Unlock.IsUnlocked(user.PlatformId, f, out var need))

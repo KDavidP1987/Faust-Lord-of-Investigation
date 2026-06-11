@@ -26,6 +26,7 @@ internal sealed class PlayerInfoService
         public long PlayMinutes { get; init; }
         public int PeakHour { get; init; }
         public double FreqPerWeek { get; init; }
+        public int DaysIdle { get; init; } // whole days since last seen; 0 if online; -1 if untracked
     }
 
     public readonly struct PlayerPosition
@@ -69,6 +70,7 @@ internal sealed class PlayerInfoService
             PlayMinutes = m.PlayMinutes,
             PeakHour = m.PeakHour,
             FreqPerWeek = m.FreqPerWeek,
+            DaysIdle = m.DaysIdle,
         };
     }
 

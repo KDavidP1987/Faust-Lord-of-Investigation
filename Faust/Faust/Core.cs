@@ -26,6 +26,8 @@ internal static class Core
     // ---- Feature services (data collection); built in TryInitialize after game data is loaded ----
     public static CastleService Castle { get; private set; }
     public static PlayerInfoService PlayerInfo { get; private set; }
+    public static ClanService Clan { get; private set; }
+    public static MapMarkerService MapMarkers { get; private set; }
 
     // ---- Persistence; created at Plugin.Load (no ECS dependency) so it captures connect events
     //      that can land before game-data init completes, and so admin overrides apply immediately. ----
@@ -88,6 +90,8 @@ internal static class Core
             // lands with the persistence subsystem; see docs/FAUST_DESIGN.md §6.
             Castle = new CastleService();
             PlayerInfo = new PlayerInfoService();
+            Clan = new ClanService();
+            MapMarkers = new MapMarkerService();
 
             IsReady = true;
             Log.LogInfo($"Faust initialized via {trigger} (attempt #{_initAttempts}). Prefab map has {prefabSystem.SpawnableNameToPrefabGuidDictionary.Count} entries.");

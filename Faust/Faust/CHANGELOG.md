@@ -3,6 +3,37 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.13.0 (2026-06-10)
+
+- **All features now default to admin-only.** Faust is an admin tool first — admins choose what (if
+  anything) to grant players. `castleinfo`, `plots`, `objectscan` and `stats` now start admin-only like
+  everything else. (Existing configs are untouched; change any feature in the `.cfg`.)
+- **New: anti-spam rate limit.** `[Faust] RateLimitSeconds` (default off) — minimum seconds between a
+  player's queries, so nobody can hammer a query and stress the server. Admins exempt by default.
+- **New: lock data resets to senior admins.** `[Faust.Data] ResetSteamIds` — only the listed admins can
+  run `.faust admin data clear`/`wipe`. Empty = any admin (as before). For tiered admin teams.
+- **New: `.faust api stats players`** — a full player-activity roster (active-today/this-week, last-seen,
+  sessions, playtime, days-idle) behind the population dashboards.
+- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**. Tell us
+  whether the information is accurate and useful — bug reports, feedback, and feature requests at
+  **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) directly shape 1.0.
+
+## 0.12.0 (2026-06-10)
+
+- **New: more activity charts.** **Day-of-week** playtime (`stats weekdays`, server-wide or per player)
+  and a **per-player daily trend** (`stats pdaily <player>`) join the existing hour/daily/session charts.
+- **New: clan composition (`.faust api clans`).** See at a glance **how many players are in clans vs
+  going solo** (with the currently-online split), plus a per-clan roster — size, who's online, **how many
+  castles the clan holds**, and the leader. Defaults to admin-only.
+- **New: server-health metrics.** `stats population` (active players DAU/WAU/MAU + retention),
+  `stats recency` (who's active vs drifting away), `stats peak` (population peak/average), and
+  `stats regions` (players + castles per map region). Plus a per-player **days-idle** in `pinfo`.
+- **Experimental: `.faust admin showpositions`** — put online players on the **native in-game map**,
+  using the game's own map-icon attach system. **Off by default** and still being validated — when you
+  enable it on a test server, double-check that the markers are visible only to admins before relying
+  on it.
+- Note: still an early release — these haven't been validated in a live session yet.
+
 ## 0.11.0 (2026-06-10)
 
 - **New: admin data controls.** Faust's history (playtime/sessions, population, unlock progress) lives on
@@ -44,8 +75,9 @@ Condensed, player-facing changelog. Full technical history:
   background*, not just who can read it. Switch off session/population history, cap how much is kept,
   or prune old data — so Faust never costs server performance. Almost every query already reads live
   data on demand (no background cost); these knobs bound the one part that accumulates over time.
-- Both READMEs now spell out the philosophy: **Faust is information under admin control — not
-  all-or-nothing, not a cheat.** Admins decide, per feature, how much players see.
+- Both READMEs now spell out the philosophy: **Faust is an administrative tool and global server view;
+  admins decide, per feature, what (if anything) players can see** — a strategic tool to grant in PvP, a
+  community-building tool to share in PvE.
 - Note: still an early release — these haven't been validated in a live session yet.
 
 ## 0.8.0 (2026-06-10)

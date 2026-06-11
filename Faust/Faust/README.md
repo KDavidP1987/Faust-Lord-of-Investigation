@@ -3,28 +3,46 @@
 ![Faust, Lord of Investigation](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/docs/img/faust-cover.jpg)
 
 A **server-side** mod for V Rising dedicated servers that answers on-demand **investigation /
-information** queries — about players, castles, plots, objects, and server activity — delivered
-as `.faust` chat commands and as structured data for the **BloodCraftHub** companion UI to render.
+information** queries — about players, castles, plots, objects, and server activity — delivered as
+structured data for its companion client **[Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK)**
+to render as in-game panels, overlays, dashboards, and graphs (and also available as plain `.faust`
+chat commands).
 
-Faust is **not all-or-nothing, and it's not a cheat.** It surfaces information; **your server's admins
-decide how much of it you can see.** Sensitive intel is **gated per feature** (admins choose Off /
-Admin-only / Players) and can carry an **item cost** — the Faustian toll — a cooldown, an unlock
-requirement, or a place you must stand near, so on PvP/competitive servers knowledge isn't free.
-Many servers run Faust admin-only; others hand players select intel as a gameplay tool. Admins also
-control what Faust **collects in the background**, so it never costs server performance.
+> **Faust is designed to be run alongside Raphael.** Raphael is the client that turns Faust's data into
+> a usable UI — the Player Positions map, the All-Plots castle table, the Server Stats dashboards, the
+> Clans tab, and the player-activity charts. Faust is the **server brain**; Raphael is the **screen**.
+> You *can* use Faust on its own from chat, but the experience these two are built for is the pair.
+
+Faust is, first and foremost, an **administrative and moderation tool** — the global, authoritative
+view of your server. On top of that, admins can **grant** parts of it to players: as a **strategic
+tool** on PvP servers and a **community-building tool** on PvE servers. Everything is **controlled per
+feature** — your server's admins decide what, if anything, players can see (Off / Admin-only / Players),
+and may attach an optional **item cost** — the Faustian toll — a cooldown, an unlock, or a location
+requirement when they want to. Sensitive intel defaults to admin-only. Admins also control what Faust
+**collects in the background**, so it never costs server performance.
 
 ---
 
-## ⚠ Heads-up before you install
+## ⚠ Pre-1.0 — for testing
 
-**Pre-1.0 — in active testing.** The full investigation feature set and the per-feature
-admin-control surface are implemented; this build is being validated in game. By running it you're
-helping test it. **Back up your server save** before adding any mod. Commands, config keys, and
-behavior may still change before 1.0.
+**This is a pre-1.0 release, published for testing.** The full investigation feature set and the
+per-feature admin-control surface are implemented and working in-game, but Faust is still being
+validated and refined — **by running it, you're helping test it.** **Back up your server save** before
+adding any mod, and expect commands, config keys, wire shapes, and behavior to keep evolving before 1.0.
 
-**Found a bug or have an idea?** The fastest path to a fix is the
-**[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — the primary bug-report and
-feedback channel. Written-up GitHub issues are welcome too.
+**Run it with [Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK).** Faust ships its data to
+Raphael; that pairing is what's being tested, and it's how you get the UI Faust is built for.
+
+### 💬 We want your feedback
+
+Faust is **all about information** — so tell us whether the information is *right, useful, and
+presented well.* Is a number wrong or confusing? A chart missing a cut you'd want? An intel view you
+wish existed? A feature you'd like to grant players differently? **That feedback directly shapes 1.0.**
+
+- **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — the **primary** place for bug reports,
+  feedback on the data, and **requests for new features / enhancements**. Come tell us what you need.
+- **GitHub issues:** https://github.com/KDavidP1987/Faust-Lord-of-Investigation/issues — written-up
+  bugs and ideas welcome too.
 
 ---
 
@@ -54,11 +72,17 @@ every query also works from chat.
 - **Enemy castle resource totals** — sum everything stashed in a castle *(admin-default; a natural
   one to price or restrict to PvP)*.
 - **Server stats** — a playtime leaderboard and a server-population history, ready for graphs.
-- **Activity analytics** — chart-ready breakdowns of when people play (by hour of day), daily active
-  players + play-minutes, new arrivals per day, and how long sessions last — server-wide or per player.
+- **Activity analytics** — chart-ready breakdowns of when people play (by hour of day **and day of
+  week**), daily active players + play-minutes, new arrivals per day, how long sessions last, and a
+  **per-player daily trend** — server-wide or per player.
+- **Clan composition** — how many players are **in clans vs going solo** (with the currently-online
+  split), plus a per-clan roster: size, who's online, **how many castles they hold**, and the leader
+  *(admin-default)*.
+- **Population health** — active-player counts (DAU/WAU/MAU), retention, who's drifting away, the
+  population peak/average, and where everyone is (players + castles **per region**).
 
-**Every feature is independently controlled by the admin** — Faust is never all-or-nothing, and
-intel is never free unless the admin makes it so. Per feature you can set:
+**Every feature is independently controlled by the admin.** You decide, per feature, what (if anything)
+players can see and on what terms. Per feature you can set:
 
 - **Who** — off, admin-only, or all players.
 - **A price** — an item cost per use (the Faustian toll).
@@ -102,12 +126,15 @@ clients.
 | [**BepInExPack V Rising**](https://thunderstore.io/c/v-rising/p/BepInEx/BepInExPack_V_Rising/) | 1.733.2 | Loader (hard dependency) |
 | [**VampireCommandFramework**](https://thunderstore.io/c/v-rising/p/deca/VampireCommandFramework/) | 0.10.x | Chat-command framework (hard dependency) |
 
-**Optional companion (not a dependency):** the client-side mod
-[**BloodCraftHub**](https://thunderstore.io/c/v-rising/p/TheShadowRealm/BloodCraftHub/) renders
-Faust's data as in-game UI panels, overlays, and graphs. It is **not required** — every Faust
-feature also works through `.faust` chat commands. Faust is a sibling to the author's
-server-side **Uriel, Lord of Hosts** and **Beelzebub, Lord of Gluttony**; each is independent
-and integrates with BloodCraftHub the same way.
+**Companion client — [Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK):** the client-side mod
+that renders Faust's data into in-game UI — the Player Positions map, the All-Plots castle table, the
+Server Stats dashboards (population / recency / peak / regions), the Clans tab, and the per-player
+activity charts. **Faust is built to be used with Raphael** — it's the screen for Faust's server brain.
+Technically Raphael isn't a hard dependency (every Faust feature also works from `.faust` chat), but the
+intended experience is the pair. Grab Raphael from **[The Shadow Realm](https://discord.gg/usC9QgBrXK)**.
+
+Faust is also a sibling to the author's other server-side mods **Uriel, Lord of Hosts** and
+**Beelzebub, Lord of Gluttony**; each is independent.
 
 ## Commands
 
@@ -128,7 +155,15 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api stats hours [player]` | Activity by hour-of-day (24 buckets) — server-wide or one player |
 | `.faust api stats daily [days]` | Daily active players + play-minutes for the last N days |
 | `.faust api stats newplayers [days]` | New arrivals (first seen) per day |
+| `.faust api stats weekdays [player]` | Activity by day-of-week (Mon–Sun) — server-wide or one player |
 | `.faust api stats sessions [player]` | Session-length spread (`<15m` / `15–60m` / `1–3h` / `3h+`) |
+| `.faust api stats pdaily <player> [days]` | One player's daily play-minutes trend (last N days) |
+| `.faust api stats population` | Active players (DAU/WAU/MAU) + retention + new-vs-returning |
+| `.faust api stats recency` | How many players seen in last 24h / 7d / 30d vs dormant |
+| `.faust api stats peak [days]` | Concurrency summary — peak / average / p95 / live count |
+| `.faust api stats regions [page]` | Online players + claimed castles per map region |
+| `.faust api stats players [page]` | Per-player activity roster (active today/week, last-seen, sessions, playtime, idle) |
+| `.faust api clans [page]` | Clan composition — clanned vs independent + per-clan roster (size, online, castles, leader) *(admin-default)* |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |
 | `.faust` · `.faust help [topic]` | Overview / topic-by-topic help |
@@ -146,7 +181,10 @@ effect on server restart.
 |---|---|---|---|
 | Faust | Enabled | `true` | Master switch for the whole mod |
 | Faust | AuditQueries | `true` | Log who asked what, when, and whether they were charged |
-| Faust.\<feature\> | Access | varies | `Off` / `AdminOnly` / `Players` — who may run this query |
+| Faust | RateLimitSeconds | `0` | Anti-spam: min seconds between a player's queries (0 = off). Stops a player hammering a query and stressing the server |
+| Faust | RateLimitAdminsExempt | `true` | Admins skip the rate limit (so admin dashboards/paging aren't throttled) |
+| Faust.Data | ResetSteamIds | *(empty)* | SteamIDs allowed to run `.faust admin data clear`/`wipe` (empty = any admin). For tiered admin teams |
+| Faust.\<feature\> | Access | `AdminOnly` | `Off` / `AdminOnly` / `Players` — who may run this query (admin-only by default; grant to players per feature) |
 | Faust.\<feature\> | Delivery | varies | `ServerMediated` (gateable/chargeable) or `Free` (client-local) |
 | Faust.\<feature\> | CostItemGuid / CostQuantity | `0` / `0` | Item + amount charged per query (0 = free) |
 | Faust.\<feature\> | CooldownSeconds | `0` | Flat per-player lockout between runs (e.g. pay, then locked 30 min) |
@@ -157,7 +195,8 @@ effect on server restart.
 | Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
-`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`. Sensitive ones default to **AdminOnly**.
+`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`, `clans`. **Every feature defaults
+to AdminOnly** — Faust is an admin tool first; open up whichever ones you want to share, per server.
 
 ### Collection controls — what Faust gathers in the background
 
@@ -192,17 +231,21 @@ Admins can override features at runtime — these persist across restarts:
 | `.faust admin data status` | Footprint of collected data (counts, oldest record, disk size, namespace, retention) |
 | `.faust admin data clear <days>` | Prune activity (sessions + population) older than N days, on demand |
 | `.faust admin data wipe <activity\|unlocks\|usage\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts (`confirm` required) |
+| `.faust admin showpositions <on\|off\|status>` | *Experimental* — put online players on the native in-game map (off by default; verify admin-only visibility on a test server first) |
 
 A feature can also require a **progression unlock** before players may use it — set
 `Unlock = FinalBoss` (defeat Dracula) or `Unlock = BossKill:<vbloodGuid>` per feature in the config.
 
 ## Feedback & community
 
-Built and tested alongside the **The Shadow Realm** V Rising community. As a pre-1.0 mod, bug
-reports and feedback shape what 1.0 becomes.
+Built and tested alongside the **The Shadow Realm** V Rising community, hand-in-hand with its companion
+client **Raphael, Lord of Wisdom**. This is a **pre-1.0 testing release**, and your feedback — on whether
+the information is accurate, useful, and well-presented, and on what intel you wish Faust surfaced —
+**directly shapes what 1.0 becomes.** Bug reports, ideas, and enhancement requests all welcome.
 
-- **The Shadow Realm Discord (primary):** https://discord.gg/usC9QgBrXK
-- **Issues / source:** https://github.com/KDavidP1987/Faust-Lord-of-Investigation
+- **The Shadow Realm Discord (primary — bugs, feedback & feature requests):** https://discord.gg/usC9QgBrXK
+- **Raphael (companion client):** available from **The Shadow Realm** (link above)
+- **GitHub issues / source:** https://github.com/KDavidP1987/Faust-Lord-of-Investigation/issues
 
 ## Acknowledgements
 

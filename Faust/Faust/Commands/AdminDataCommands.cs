@@ -43,9 +43,20 @@ internal static class AdminDataCommands
         ctx.Reply(sb.ToString());
     }
 
+    /// <summary>Layered-admin guard for the destructive data commands (ResetSteamIds allowlist).</summary>
+    static bool MayReset(ChatCommandContext ctx)
+    {
+        var u = ctx.Event.User;
+        if (Settings.MayResetData(u.PlatformId, u.IsAdmin)) return true;
+        ctx.Reply("You're not authorized to clear/reset Faust data on this server (restricted to specific " +
+                  "admins via [Faust.Data] ResetSteamIds). You can still use '.faust admin data status'.");
+        return false;
+    }
+
     [Command("clear", description: "Prune collected ACTIVITY older than N days (sessions + concurrency). Usage: .faust admin data clear <days>", adminOnly: true)]
     public static void Clear(ChatCommandContext ctx, int days)
     {
+        if (!MayReset(ctx)) return;
         if (days <= 0)
         {
             ctx.Reply("Give a positive day count, e.g. '.faust admin data clear 90'. " +
@@ -60,6 +71,7 @@ internal static class AdminDataCommands
     [Command("wipe", description: "Erase a collected-data store. Usage: .faust admin data wipe <activity|unlocks|usage|all> confirm", adminOnly: true)]
     public static void Wipe(ChatCommandContext ctx, string store, string confirm = null)
     {
+        if (!MayReset(ctx)) return;
         store = store?.ToLowerInvariant();
         if (store is not ("activity" or "unlocks" or "usage" or "all"))
         {

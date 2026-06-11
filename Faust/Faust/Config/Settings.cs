@@ -110,10 +110,22 @@ internal static class Settings
     public const string Stats = "stats";                     // #8 server stats / leaderboards
     public const string AllCastles = "allcastles";           // full server castle map (every territory)
     public const string DecayWatch = "decaywatch";           // claimed castles sorted by soonest-to-decay
+    public const string Clans = "clans";                     // clan composition: clanned vs independent + rosters
 
     public static ConfigEntry<bool> Enabled { get; private set; }
     public static ConfigEntry<bool> AuditQueries { get; private set; }
     public static ConfigEntry<bool> VerboseLogging { get; private set; }
+
+    // ---- Anti-spam: a global per-player floor between any two Faust queries (perf protection) ----
+    public static ConfigEntry<int> RateLimitSeconds { get; private set; }
+    public static ConfigEntry<bool> RateLimitAdminsExempt { get; private set; }
+
+    // ---- Layered-admin control: which admins (SteamIDs) may CLEAR/RESET collected data ----
+    public static ConfigEntry<string> DataResetSteamIds { get; private set; }
+
+    // ---- EXPERIMENTAL: server-driven native-map player markers (.faust admin showpositions) ----
+    public static ConfigEntry<bool> MapMarkersEnabled { get; private set; }
+    public static ConfigEntry<int> MapMarkerPrefabGuid { get; private set; }
 
     // ---- Passive collection controls (the "what does Faust collect" axis; design §10) ----
     // These govern Faust's BACKGROUND data collection, independent of who can READ a feature.
@@ -130,6 +142,18 @@ internal static class Settings
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
     public static FeatureConfig Feature(string key) => _features.TryGetValue(key, out var f) ? f : null;
 
+    /// <summary>True if this admin may run the destructive data commands (clear/wipe). With an empty
+    /// ResetSteamIds allowlist any admin may; otherwise the caller's SteamID must be listed.</summary>
+    public static bool MayResetData(ulong steamId, bool isAdmin)
+    {
+        if (!isAdmin) return false;
+        var raw = DataResetSteamIds.Value;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+        foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (ulong.TryParse(part, out var id) && id == steamId) return true;
+        return false;
+    }
+
     public static void Initialize(ConfigFile config)
     {
         Enabled = config.Bind(
@@ -140,9 +164,42 @@ internal static class Settings
             "Faust", "AuditQueries", true,
             "Log who asked what, when, and whether they were charged — a privacy/abuse trail for admins.");
 
+        RateLimitSeconds = config.Bind(
+            "Faust", "RateLimitSeconds", 0,
+            "Anti-spam floor: minimum seconds a player must wait between ANY two Faust queries (a denied " +
+            "query with code=ratelimit + secs remaining). 0 = off (default). Set e.g. 5 to stop a player " +
+            "hammering a query and stressing the server. Applies across all features (it's a per-player, " +
+            "not per-feature, limit). NOTE: it also throttles paged reads, so admins driving the " +
+            "BloodCraftHub/Raphael UI should stay exempt (see RateLimitAdminsExempt).");
+        RateLimitAdminsExempt = config.Bind(
+            "Faust", "RateLimitAdminsExempt", true,
+            "When true, admins are exempt from RateLimitSeconds (so admin dashboards/paging aren't throttled). " +
+            "Since features default to AdminOnly, the limit mainly guards features an admin has opened to players.");
+
+        DataResetSteamIds = config.Bind(
+            "Faust.Data", "ResetSteamIds", "",
+            "Comma-separated SteamIDs of the admins allowed to run the DESTRUCTIVE data commands " +
+            "('.faust admin data clear' / 'data wipe'). EMPTY (default) = any admin may. Set it to lock " +
+            "data resets to specific senior admins on servers with layered admin teams (junior admins still " +
+            "get every other '.faust admin …' command and 'data status', just not clear/wipe).");
+
         VerboseLogging = config.Bind(
             "Diagnostics", "VerboseLogging", false,
             "Emit detailed per-query log lines (useful when testing; noisy in production).");
+
+        // EXPERIMENTAL native-map markers. Default OFF on purpose: it spawns/attaches the game's
+        // server-authoritative MapIcon entities, and a malformed networked entity can crash the server
+        // tick in an UNCATCHABLE async job. Only enable on a TEST server until validated in-game.
+        MapMarkersEnabled = config.Bind(
+            "Faust.MapMarkers", "Enabled", false,
+            "EXPERIMENTAL — leave OFF unless you are testing. Master switch for '.faust admin showpositions', " +
+            "which makes the server attach native-map markers to online players (admin-visible). This touches " +
+            "server-authoritative networked MapIcon entities; if the archetype is wrong it can crash the server " +
+            "in a way no try/catch can stop. Validate on a TEST server before using in production. Default false.");
+        MapMarkerPrefabGuid = config.Bind(
+            "Faust.MapMarkers", "MarkerPrefabGuid", -892362184,
+            "PrefabGUID of the map-icon prefab to attach per player (default -892362184 = MapIcon_Player). " +
+            "Ignored unless Enabled = true.");
 
         // Passive-collection controls (design §10). Faust's queries are almost all read-on-demand
         // (zero passive cost); only the session/concurrency time-series accumulates. Admins own its
@@ -178,18 +235,19 @@ internal static class Settings
             "it starts a fresh dataset (the previous one is left on disk under its own name, not deleted). " +
             "To reset data instead of separating it, use '.faust admin data wipe …'.");
 
-        // Per-feature blocks. Defaults follow design §4/§5: sensitive intel (positions, enemy
-        // resources, other players' info) defaults to AdminOnly; benign/own-data is Players;
-        // every feature starts cost-free and admin-exempt so a fresh install is usable.
+        // Per-feature blocks. EVERY capability ships AdminOnly (design decision: Faust is an admin tool
+        // first; admins deliberately GRANT pieces to players per server). Admins then retune any feature
+        // to Players (or Off) in the .cfg. Each starts cost-free and admin-exempt so a fresh install works.
         Bind(config, PlayerPositions, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
-        Bind(config, CastleInfo, AccessLevel.Players, DeliveryMode.ServerMediated);
+        Bind(config, CastleInfo, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, PlayerInfo, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
-        Bind(config, PlotAvailability, AccessLevel.Players, DeliveryMode.ServerMediated);
-        Bind(config, ObjectScan, AccessLevel.Players, DeliveryMode.Free);
+        Bind(config, PlotAvailability, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
+        Bind(config, ObjectScan, AccessLevel.AdminOnly, DeliveryMode.Free);
         Bind(config, CastleResources, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
-        Bind(config, Stats, AccessLevel.Players, DeliveryMode.ServerMediated);
+        Bind(config, Stats, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, AllCastles, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, DecayWatch, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
+        Bind(config, Clans, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
     }
 
     static void Bind(ConfigFile config, string key, AccessLevel defaultAccess, DeliveryMode defaultDelivery)

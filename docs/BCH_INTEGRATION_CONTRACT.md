@@ -38,7 +38,7 @@ with one line:
 [FAUST:version] api=<int> plugin=<semver> ready=1 \
     playerpositions=<acc>:<cost> castleinfo=<acc>:<cost> playerinfo=<acc>:<cost> \
     plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
-    allcastles=<acc>:<cost> decaywatch=<acc>:<cost>
+    allcastles=<acc>:<cost> decaywatch=<acc>:<cost> clans=<acc>:<cost>
 ```
 
 (Single line — shown wrapped here for readability.)
@@ -66,12 +66,16 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 10):** the shapes below are **IMPLEMENTED** and live as of Faust 0.10.0 —
+> **Status (ApiVersion 12):** as of Faust 0.13.0, **every feature ships AdminOnly by default** (Faust is
+> an admin tool first; admins grant pieces to players per server) — so a fresh handshake shows
+> `…=admin:…` for all tokens to a non-admin. New in 12: the `stats players` roster (§7 below) and a
+> per-player `ratelimit` deny code (§4). The shapes below are **IMPLEMENTED** and live as of Faust 0.12.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
 > positions (#1, carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`, plus the
-> activity-analytics charts `hours` / `daily` / `newplayers` / `sessions` added in 0.10.0),
-> `castles` (full-map list, `allcastles`), and `decay` (claimed castles by soonest-decay,
-> `decaywatch`). `objectscan` (#5) is
+> activity-analytics charts `hours` / `daily` / `newplayers` / `sessions` from 0.10.0 and `weekdays` /
+> per-player `pdaily` added in 0.12.0), `castles` (full-map list, `allcastles`), `decay` (claimed
+> castles by soonest-decay, `decaywatch`), and `clans` (clan composition: clanned-vs-independent +
+> rosters, new in 0.12.0). `objectscan` (#5) is
 > still proposed and is largely **client-side** (BCH reads nearby entities itself; route through
 > Faust only if an admin prices it). A `-1` in any numeric field is the "not tracked / none recorded
 > yet" sentinel.
@@ -86,6 +90,14 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 > commands, not wire — they don't affect the `[FAUST:*]` surface or ApiVersion. Note Faust's collected
 > data is server-scoped (`BepInEx/config/Faust/`) and survives a world wipe; admins reset it explicitly
 > via `.faust admin data wipe …` (so BCH/Raphael analytics may span worlds unless an admin wiped).
+>
+> **§5 native-map markers (status):** `.faust admin showpositions <on|off|status>` is a server-side
+> admin command (no wire shape), **gated off by default** (`[Faust.MapMarkers] Enabled`). The attach is
+> implemented via the game's own `AttachMapIconsToEntity` buffer (`ProjectM.Shared`) →
+> `InstantiateMapIconsSystem`, so the server spawns the real networked icon. **Still being validated**
+> on a live server — the open item is admin-only visibility (default marker is ally-visible). Positions
+> still come from `.faust api positions`; Raphael can wire a "Show players on map" button that sends the
+> command, but keep it behind a diagnostics/experimental flag until the visibility model is confirmed.
 
 ### `castleinfo` (#2) — IMPLEMENTED
 `.faust api castleinfo <token>` — `<token>` = `here` (territory you're standing in, default) |
@@ -142,13 +154,35 @@ Admin-default (own feature key `decaywatch`); the housekeeping view (which castl
   by the `[FAUST:end] cmd=decay` trailer. No `unclaimed` rows here (claimed castles only). An empty
   server still sends `[FAUST:end] cmd=decay page=1/1 count=0`.
 
+### `clans` (clan composition) — IMPLEMENTED (ApiVersion ≥11)
+`.faust api clans [page]` — how the server population splits between clans and solo players, plus a
+per-clan roster. Admin-default (own feature key `clans`; PvP-sensitive rosters). A summary line (page 1),
+then one paged `[FAUST:clan]` row per non-empty clan (members-descending).
+```
+[FAUST:clansummary] clans=<n> clanned=<n> independent=<n> online_clanned=<n> online_independent=<n> largest=<n> avg=<f>
+[FAUST:clan] name=<wire_name> members=<n> online=<n> castles=<n> leader=<wire_name>
+…rows (members-descending)…
+[FAUST:end] cmd=clans page=<cur>/<total> count=<n>
+```
+- **`clansummary`** (page 1 only): `clanned` / `independent` are counts over **every known user**
+  (online + offline); `online_clanned` / `online_independent` are the currently-connected split;
+  `largest` is the biggest clan's member count; `avg` is mean members per clan (one decimal, `0.0` if no
+  clans). This is the "how many are clanned vs solo" headline.
+- **`clan`** rows: `members` = total roster size, `online` = members currently connected, `castles` =
+  territories the clan's team owns (ApiVersion ≥11), `leader` = the clan leader's wire-safe name (`_` if
+  none resolved). Empty/disbanded clans are skipped.
+- A clanless server still sends the summary (with zeros) + `[FAUST:end] cmd=clans page=1/1 count=0`.
+- BCH disambiguates the `[FAUST:clan]` rows from the `clansummary` header by tag; paging is standard.
+
 ### `playerinfo` (#3) — IMPLEMENTED
 `.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the
 `playerinfo` feature access (AdminOnly by default). Name lookups must be unique (exact name wins).
 ```
 [FAUST:player] steam=<id> name=<wire_name> online=<0|1> lastonline=<unixUtc> \
-    firstseen=<unixUtc> sessions=<n> playmins=<total> freq=<perWeek> peakhour=<0-23>
+    firstseen=<unixUtc> sessions=<n> playmins=<total> freq=<perWeek> peakhour=<0-23> daysidle=<n>
 ```
+- `daysidle` (ApiVersion ≥11): whole days since the player was last seen (**0** if online now, **-1** if
+  untracked) — the per-player "at-risk / drifting away" signal that complements the holistic `recency`.
 - All fields are **live**, derived from Faust's own session log (`FaustStore`) — the game only
   stores the *last* connect time, so Faust logs connect/disconnect over time. `firstseen` is Unix
   UTC; `playmins` is total minutes; `freq` is logins/week (one decimal); `peakhour` is the busiest
@@ -257,6 +291,71 @@ server-wide or for one player. Single line, no trailer:
 ```
 - Buckets are `<15m` / `15–60m` / `1–3h` / `3h+` by session duration.
 
+`.faust api stats weekdays [<name|steamId>]` (ApiVersion ≥11) — accumulated playtime **minutes per UTC
+weekday**, server-wide or for one player. Single line, no trailer:
+```
+[FAUST:weekdays] scope=<server|steamId> d0=<min> d1=<min> … d6=<min>
+```
+- **`d0`=Monday … `d6`=Sunday, UTC** (consistent with `hours` h00…h23). Sessions sliced at UTC midnight
+  (like `daily`), so a session that straddles midnight feeds both weekdays — authoritative "by day of
+  week" for the **server** and now **per player** too.
+
+`.faust api stats pdaily <name|steamId> [days=90]` (ApiVersion ≥11) — **one player's** UTC-day playtime
+for the last N days (clamped 1–90), **one row per day the player was online** (zero-days omitted),
+oldest→newest, un-paged:
+```
+[FAUST:pdaily] steam=<id> day=<unixUtcMidnight> minutes=<int>   ; one row per online day
+[FAUST:end] cmd=pdaily count=<n>
+```
+- The per-player analogue of `daily` (no `dau` — it's a single player). `<name|steamId>` is **required**
+  (an unresolvable/missing player → `[FAUST:err] code=notfound feature=stats`). Re-bucket client-side for
+  a per-player weekly trend, the same way the server `daily` series is re-bucketed.
+
+**Population health rollups** (ApiVersion ≥11) — single-line headline metrics, no trailer:
+
+`.faust api stats population` — active-player counts + retention:
+```
+[FAUST:population] dau=<n> wau=<n> mau=<n> new_today=<n> returning_today=<n> stickiness=<f> d1=<f> d7=<f> d30=<f>
+```
+- `dau` = active in the current UTC day; `wau`/`mau` = active within the last 7 / 30 days. `new_today` =
+  first seen today; `returning_today` = `dau - new_today`. `stickiness` = `dau/mau` (0..1). `dN` =
+  retention: of players who first appeared ≥ N days ago, the fraction still active ≥ N days later (0..1).
+
+`.faust api stats recency` — how many known players are recently active vs drifting away:
+```
+[FAUST:recency] seen24h=<n> seen7d=<n> seen30d=<n> dormant=<n> total=<n>
+```
+- Cumulative (`seen7d` includes `seen24h`); `dormant` = not seen in >30 days; `total` = all tracked players.
+
+`.faust api stats peak [days=30]` — concurrency summary over the last N days (0 = all stored):
+```
+[FAUST:concsummary] peak=<n> peak_t=<unixUtc> avg=<f> p95=<n> now=<n>
+```
+- `peak`/`peak_t` = max concurrent + when; `p95` = 95th-percentile concurrent; `now` = live online count.
+  **`avg` is sample-weighted** (samples are event-driven, not time-spaced) — `peak`/`p95` are the solid figures.
+
+`.faust api stats regions [page]` — population + castle distribution by map region (paged):
+```
+[FAUST:region] name=<wire_name> players=<n> castles=<n>
+…rows (castles-descending)…
+[FAUST:end] cmd=regions page=<cur>/<total> count=<n>
+```
+- `players` = **online** players currently in that region (offline players have no position); `castles` =
+  claimed castles in it. `name=-` is the open-world / no-region bucket (the canonical region sentinel).
+
+`.faust api stats players [page]` (ApiVersion ≥12) — the **per-player activity roster** (§7): one row per
+tracked player, the data behind the aggregates, playtime-descending, paged:
+```
+[FAUST:prow] steam=<id> name=<wire_name> online=<0|1> lastonline=<unixUtc> \
+    active24h=<0|1> active7d=<0|1> sessions=<n> playmins=<total> daysidle=<n>
+…rows (playmins-descending)…
+[FAUST:end] cmd=players page=<cur>/<total> count=<n>
+```
+- `active24h`/`active7d` are the per-player booleans behind DAU/WAU (render the ✓ "active today/this
+  week"); `daysidle` matches `pinfo` (`0` online, whole days since last seen otherwise); `lastonline` is
+  Faust's last-session-end (UTC). Same fields as `pinfo`, emitted for every tracked player in one list.
+  Admin-default (under the `stats` gate); PvP-sensitive (reveals who plays when).
+
 - An unresolvable player scope (`hours`/`sessions`) or unknown `<kind>` → `[FAUST:err]
   code=notfound|badtarget feature=stats`. The `daily`/`newplayers` end trailers carry **no `page=`
   token** (the whole fixed window ships at once).
@@ -306,12 +405,14 @@ server-wide or for one player. Single line, no trailer:
   `None`/`Unknown` no longer leak through — test only for `-` (or empty) as "no region."
 - **Errors:** `[FAUST:err] code=<code> [feature=<f>] [item=<guid>] [qty=<n>] [secs=<n>]`
   with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound | badtarget |
-  blocked | schedule | pvp | window | locked | notnear`. BCH surfaces a friendly message and the relevant detail:
+  blocked | schedule | pvp | window | locked | notnear | ratelimit`. BCH surfaces a friendly message and the relevant detail:
   - `cost` → `item` + `qty` (the price). `cooldown` / `window` → `secs` (time until reusable;
     `window` = a per-period usage allowance is spent, locked until the period rolls over).
   - `blocked` → `secs` until an admin countdown expires (`secs=-1` = blocked indefinitely until an
     admin unblocks). `schedule` → `secs` until the next time-of-day window opens.
   - `pvp` → the feature is disabled for this server's game mode (PvE/PvP-only).
+  - `ratelimit` → the requester hit the server's per-player anti-spam floor (`RateLimitSeconds`); `secs` =
+    seconds until the next query is allowed. Global (not per-feature); admins are normally exempt.
   - `locked` → the player hasn't met the feature's unlock criterion; `need` ∈ `bosskill | finalboss
     | grant` hints what opens it (defeat a specific V Blood / defeat Dracula / be admin-granted).
   - `notnear` → the player isn't within range of the required object; `item` = the object's

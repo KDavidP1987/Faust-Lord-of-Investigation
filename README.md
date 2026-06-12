@@ -131,6 +131,48 @@ requirement. See the [Philosophy](#philosophy-information-under-admin-control) s
 Pending: `AllBosses`/`AllQuests` unlock auto-detection (other unlock criteria live); live in-game
 validation of the 0.3–0.9 paths.
 
+## Screenshots
+
+*Every view below is rendered by the companion client **Raphael, Lord of Wisdom** from Faust's data.*
+
+**Castle Info** — owner, region, map location, size, decay, floors, owning clan & total item count
+![Castle Info](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST1-CastleInfo.png)
+
+**Open Plots** — available building plots, largest first
+![Open Plots](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST2-OpenPlots.png)
+
+**All Plots** — the full server castle map (every territory, claimed + open)
+![All Plots](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST3-AllPlotsInfo.png)
+
+**Decay Watch** — claimed castles ranked by soonest-to-decay
+![Decay Watch](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST4-DecayWatch.png)
+
+**Castle Resources** — total resources stashed in a castle (+ prisoners)
+![Castle Resources](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST5-CastleResources.png)
+
+**Player Info** — online state, last-online, playtime, sessions, frequency, peak hour
+![Player Info](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST6-PlayerInfo.png)
+
+**Clans** — clanned vs independent, with per-clan rosters
+![Clans](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST7-ClanInfo.png)
+
+**Player Positions + Activity Heat Map** — live positions and the position-density heat map
+![Player Positions and Heat Map](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST8-PlayerPositionsAndHeatMap.png)
+
+**Nearby Objects** — in-world object labels
+![Nearby Objects](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST9-NearbyObjects-InWorldLabels.png)
+![Nearby Objects (labels in world)](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST9-NearbyObjects-InWorldLabels2.png)
+
+**Server Stats** — new-player roster, new vs returning, day-of-week activity, session timelines, active-days grid
+![New-player roster](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-NewPlayerInfo.png)
+![New vs returning](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-NewVsReturningPlayers.png)
+![Day-of-week activity](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-DayOfWeekActivity.png)
+![Session timelines](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-SessionTimelines.png)
+![Active-days grid](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-ActivityGrid.png)
+
+**Admin — Faust usage & access oversight**
+![Admin usage data](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST11-AdminFaustUsageData.png)
+
 ## Architecture
 
 - **Server-only** BepInEx IL2CPP plugin (`net6.0`, `kdpen.Faust`); `Plugin.Load` early-returns on

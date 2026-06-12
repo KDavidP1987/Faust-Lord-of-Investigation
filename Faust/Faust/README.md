@@ -105,6 +105,56 @@ players can see and on what terms. Per feature you can set:
 Admins can also **block or schedule** any feature live (a countdown or a daily time window) with no
 restart.
 
+## Screenshots
+
+*Every view below is rendered by the companion client **Raphael, Lord of Wisdom** from Faust's data.*
+
+**Castle Info** — owner, region, **map location**, size, decay, floors, owning clan & total item count
+![Castle Info](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST1-CastleInfo.png)
+
+**Open Plots** — available building plots, largest first
+![Open Plots](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST2-OpenPlots.png)
+
+**All Plots** — the full server castle map (every territory, claimed + open)
+![All Plots](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST3-AllPlotsInfo.png)
+
+**Decay Watch** — claimed castles ranked by soonest-to-decay
+![Decay Watch](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST4-DecayWatch.png)
+
+**Castle Resources** — total resources stashed in a castle (+ prisoners)
+![Castle Resources](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST5-CastleResources.png)
+
+**Player Info** — online state, last-online, playtime, sessions, frequency, peak hour
+![Player Info](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST6-PlayerInfo.png)
+
+**Clans** — clanned vs independent, with per-clan rosters
+![Clans](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST7-ClanInfo.png)
+
+**Player Positions + Activity Heat Map** — live positions and the position-density heat map
+![Player Positions and Heat Map](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST8-PlayerPositionsAndHeatMap.png)
+
+**Nearby Objects** — in-world object labels
+![Nearby Objects](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST9-NearbyObjects-InWorldLabels.png)
+![Nearby Objects (labels in world)](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST9-NearbyObjects-InWorldLabels2.png)
+
+**Server Stats — new-player roster**
+![New-player roster](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-NewPlayerInfo.png)
+
+**Server Stats — new vs returning players**
+![New vs returning](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-NewVsReturningPlayers.png)
+
+**Server Stats — activity by day of week**
+![Day-of-week activity](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-DayOfWeekActivity.png)
+
+**Server Stats — session timelines**
+![Session timelines](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-SessionTimelines.png)
+
+**Server Stats — active-days grid**
+![Active-days grid](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST10-ServerStats-ActivityGrid.png)
+
+**Admin — Faust usage & access oversight**
+![Admin usage data](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/Screenshots/FAUST11-AdminFaustUsageData.png)
+
 ## Installation
 
 Faust is a **server-side** mod — install it on your **V Rising dedicated server**, not on player

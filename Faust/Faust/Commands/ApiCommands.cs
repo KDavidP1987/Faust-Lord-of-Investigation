@@ -28,18 +28,44 @@ namespace Faust.Commands;
 /// the population/recency/peak/regions rollups, and the ApiVersion 12 player-activity roster
 /// `stats players`) — and the full admin-control gate (block/schedule/PvP/window-period/cost + unlock
 /// criteria + proximity-to-object + a per-player rate limit). Deny codes: blocked, schedule, pvp,
-/// window, locked, notnear, ratelimit. Bump whenever the wire grows.
+/// window, locked, notnear, ratelimit.
+///
+/// ApiVersion 13 (§8 tester batch): castleinfo grows optional heartlevel/floors/claimed/clan/items;
+/// resources reports prisoners (header count + [FAUST:prisoner] rows); a new `clanmembers` endpoint
+/// (under the clans gate); `daily` grows new=/returning=; and two admin-oversight endpoints `access`
+/// and `usage` (under the stats gate) report per-feature access + usage. Bump whenever the wire grows.
+///
+/// ApiVersion 14 (§9 drill-down batch): per-player/per-event detail behind the charts, all under the
+/// stats gate — `newplayers roster` ([FAUST:nprow]: who joined + when + clan), a `hoursplayers` sibling
+/// line on `stats hours` ([FAUST:hoursplayers]: distinct players per UTC hour, the avg-per-player
+/// denominator), `sessions timeline` ([FAUST:stl]: individual online intervals), and `stats activegrid`
+/// ([FAUST:agrow]: per-player active-days grid). All additive; older BCH simply won't query them.
+///
+/// ApiVersion 15 (§10 region/roster batch): `[FAUST:nprow]` grows `playmins=`/`castles=` (§10a);
+/// `[FAUST:region]` grows `plots=` (total buildable territories → Raphael's castle fill %, §10b); and a
+/// new `stats regiondaily` endpoint ([FAUST:rdrow]: per-day per-region castles/plots/players, §10c) — a
+/// forward-accumulating series (Faust keeps no historical castle data; it samples once per UTC day).
+///
+/// ApiVersion 16 (player-position heat map): a new `heatmap` feature (advertised in the handshake) — a
+/// `.faust api heatmap [<all|name|steamId>]` endpoint returning a binned density grid ([FAUST:hmhead]
+/// header + packed [FAUST:hmrow] cells) for per-player and server-wide heat maps. Collection is opt-in
+/// (`[Faust.Heatmap] Enabled`), sampled on a timer; the read is gated like the other features.
+///
+/// ApiVersion 17 (§11 world coords): every `[FAUST:castle]`/`[FAUST:plot]` row gains optional
+/// `posx=`/`posz=` (the territory's centroid world coords — where on the map it is, §11a), and the
+/// `[FAUST:hmhead]` header gains optional `mapbounds=` (the full buildable-map cell extent, so a sparse
+/// heat map can be drawn at true map scale, §11b). Both additive/omittable.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 12;
+    const int ApiVersion = 17;
 
     static readonly string[] FeatureOrder =
     {
         Settings.PlayerPositions, Settings.CastleInfo, Settings.PlayerInfo,
         Settings.PlotAvailability, Settings.ObjectScan, Settings.CastleResources, Settings.Stats,
-        Settings.AllCastles, Settings.DecayWatch, Settings.Clans,
+        Settings.AllCastles, Settings.DecayWatch, Settings.Clans, Settings.Heatmap,
     };
 
     // ---- Foundation: handshake + probe ----
@@ -91,12 +117,13 @@ internal static class ApiCommands
         else if (!int.TryParse(token, out tindex))
         { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.CastleInfo}"); return; }
 
-        if (tindex < 0 || !Core.Castle.TryGetTerritory(tindex, out var t))
+        if (tindex < 0 || !Core.Castle.TryGetTerritory(tindex, out var t, extras: true))
         { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.CastleInfo}"); return; }
 
         // A single lookup emits one [FAUST:castle] with NO end trailer (BCH commits immediately);
-        // the castles list reuses the same row + a [FAUST:end] cmd=castles trailer.
-        ctx.Reply(CastleRow(t));
+        // the castles list reuses the same row + a [FAUST:end] cmd=castles trailer. Only the single
+        // lookup carries the §8a extras (heartlevel/floors/claimed/clan/items) — the lists stay cheap.
+        ctx.Reply(CastleRow(t, extras: true));
         FaustAccessGate.Commit(ctx, gate);
     }
 
@@ -142,7 +169,12 @@ internal static class ApiCommands
         var plots = Core.Castle.GetFreePlots();
         var rows = new List<string>(plots.Count);
         foreach (var p in plots)
-            rows.Add($"[FAUST:plot] tindex={p.TerritoryIndex} size={p.SizeBlocks} region={Wire.Region(p.Region)}");
+        {
+            var plotRow = $"[FAUST:plot] tindex={p.TerritoryIndex} size={p.SizeBlocks} region={Wire.Region(p.Region)}";
+            if (Core.Castle.TryGetTerritoryCenter(p.TerritoryIndex, out var px, out var pz)) // §11a centroid
+                plotRow += $" posx={F(px)} posz={F(pz)}";
+            rows.Add(plotRow);
+        }
 
         // One ctx.Reply per wire line + a [FAUST:end] trailer (never \n-join a page).
         if (Wire.SendPage(ctx, "plots", rows, page)) FaustAccessGate.Commit(ctx, gate);
@@ -198,11 +230,17 @@ internal static class ApiCommands
 
         if (page <= 1)
             ctx.Reply($"[FAUST:res] tindex={sum.TerritoryIndex} owner={Wire.Safe(sum.OwnerName)} steam={sum.OwnerSteamId} " +
-                      $"containers={sum.Containers} totalitems={sum.TotalItems} distinct={sum.Items.Count}");
+                      $"containers={sum.Containers} totalitems={sum.TotalItems} distinct={sum.Items.Count} " +
+                      $"prisoners={sum.Prisoners}");
 
-        var rows = new List<string>(sum.Items.Count);
+        // Item rows, then §8b prisoner rows — both page together under cmd=resources (Raphael
+        // disambiguates by the [FAUST:item] / [FAUST:prisoner] tag).
+        var rows = new List<string>(sum.Items.Count + sum.Prisoners);
         foreach (var it in sum.Items)
             rows.Add($"[FAUST:item] guid={it.guid} qty={it.qty} name={Wire.Safe(it.name)}");
+        foreach (var p in sum.PrisonerList)
+            rows.Add($"[FAUST:prisoner] name={Wire.Safe(p.name)} bloodtype={Wire.Safe(p.bloodType)} " +
+                     $"bloodquality={p.bloodQuality}");
 
         Wire.SendPage(ctx, "resources", rows, page);
         FaustAccessGate.Commit(ctx, gate); // a resolved castle is a real result, even if empty
@@ -215,7 +253,7 @@ internal static class ApiCommands
     // <arg> carries the page (playtime/concurrency), the player scope (hours/sessions), or the day
     // window (daily/newplayers), parsed per-kind so one gate governs the whole stats surface.
 
-    [Command("stats", description: "BCH: server stats. Usage: .faust api stats <playtime|concurrency|hours|daily|newplayers|sessions|weekdays|pdaily|population|recency|peak|regions|players> [page|player|days] [days]")]
+    [Command("stats", description: "BCH: server stats. Usage: .faust api stats <playtime|concurrency|hours|daily|newplayers|sessions|weekdays|pdaily|population|recency|peak|regions|players|activegrid|regiondaily> [page|player|days] [days|page]")]
     public static void Stats(ChatCommandContext ctx, string kind, string arg = null, string arg2 = null)
     {
         var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
@@ -249,6 +287,12 @@ internal static class ApiCommands
                 var sb = new StringBuilder($"[FAUST:hours] scope={scopeTok}");
                 for (int i = 0; i < 24; i++) sb.Append($" h{i:00}={h[i]}");
                 ctx.Reply(sb.ToString());
+                // §9b sibling line: distinct players active per UTC hour — the denominator for Raphael's
+                // "average minutes per active player" toggle (avg[h] = h[h] / p[h], guarding p=0).
+                var hp = Core.Store.GetHourPlayerCounts(scope);
+                var sbp = new StringBuilder($"[FAUST:hoursplayers] scope={scopeTok}");
+                for (int i = 0; i < 24; i++) sbp.Append($" p{i:00}={hp[i]}");
+                ctx.Reply(sbp.ToString());
                 FaustAccessGate.Commit(ctx, gate);
                 break;
             }
@@ -265,7 +309,8 @@ internal static class ApiCommands
                 int days = ArgDays(arg, 14);
                 var rows = new List<string>(days);
                 foreach (var d in Core.Store.GetDailySeries(days))
-                    rows.Add($"[FAUST:daily] day={d.dayMidnightUtc} dau={d.dau} minutes={d.minutes}");
+                    rows.Add($"[FAUST:daily] day={d.dayMidnightUtc} dau={d.dau} minutes={d.minutes} " +
+                             $"new={d.newCount} returning={d.dau - d.newCount}");
                 if (Wire.SendList(ctx, "daily", rows)) FaustAccessGate.Commit(ctx, gate);
                 break;
             }
@@ -341,25 +386,38 @@ internal static class ApiCommands
             }
             case "regions":
             {
-                var map = new Dictionary<string, (int players, int castles)>(StringComparer.OrdinalIgnoreCase);
-                foreach (var pos in Core.PlayerInfo.GetOnlinePositions())
-                {
-                    string r = string.IsNullOrEmpty(pos.Region) ? "-" : pos.Region;
-                    map.TryGetValue(r, out var v); map[r] = (v.players + 1, v.castles);
-                }
-                foreach (var t in Core.Castle.GetAllTerritories())
-                {
-                    if (!t.HasHeart) continue; // claimed castles only
-                    string r = string.IsNullOrEmpty(t.Region) ? "-" : t.Region;
-                    map.TryGetValue(r, out var v); map[r] = (v.players, v.castles + 1);
-                }
-                var ordered = new List<KeyValuePair<string, (int players, int castles)>>(map);
-                ordered.Sort((a, b) => b.Value.castles.CompareTo(a.Value.castles));
-                var rows = new List<string>(ordered.Count);
-                foreach (var kv in ordered)
-                    rows.Add($"[FAUST:region] name={Wire.Region(kv.Key == "-" ? null : kv.Key)} " +
-                             $"players={kv.Value.players} castles={kv.Value.castles}");
+                // §10b: `plots` (total buildable territories) is the fill-% denominator (claimed ÷ buildable).
+                var comp = RegionStats.Gather();
+                var rows = new List<string>(comp.Count);
+                foreach (var r in comp)
+                    rows.Add($"[FAUST:region] name={Wire.Region(r.region)} players={r.players} " +
+                             $"castles={r.castles} plots={r.plots}");
                 if (Wire.SendPage(ctx, "regions", rows, ArgPage(arg))) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "regiondaily":
+            {
+                // §10c: per-day per-region snapshots (arg = day window, arg2 = page). Forward-accumulating
+                // series — sparse (only sampled days appear), starts at install. See FaustStore.GetRegionDaily.
+                int days = ArgDays(arg, 30);
+                var series = Core.Store.GetRegionDaily(days);
+                var rows = new List<string>(series.Count);
+                foreach (var d in series)
+                    rows.Add($"[FAUST:rdrow] day={d.day} region={Wire.Region(d.region == "-" ? null : d.region)} " +
+                             $"castles={d.castles} plots={d.plots} players={d.players}");
+                if (Wire.SendPage(ctx, $"regiondaily days={days}", rows, ArgPage(arg2))) FaustAccessGate.Commit(ctx, gate);
+                break;
+            }
+            case "activegrid":
+            {
+                // §9d: per-player active-days grid (arg = day window, arg2 = page). Each row is one
+                // player's days-played count + a compact day:minutes CSV (see GetActiveGrid).
+                int days = ArgDays(arg, 30);
+                var grid = Core.Store.GetActiveGrid(days);
+                var rows = new List<string>(grid.Count);
+                foreach (var g in grid)
+                    rows.Add($"[FAUST:agrow] steam={g.steam} name={Wire.Safe(g.name)} active={g.activeDays} days={g.daysCsv}");
+                if (Wire.SendPage(ctx, $"activegrid days={days}", rows, ArgPage(arg2))) FaustAccessGate.Commit(ctx, gate);
                 break;
             }
             default:
@@ -391,6 +449,137 @@ internal static class ApiCommands
         FaustAccessGate.Commit(ctx, gate); // composition is a real result even on a clanless server
     }
 
+    // ---- §8c Clan members: one clan's roster (under the clans gate) ----
+
+    [Command("clanmembers", description: "BCH: a clan's member roster (paged). Usage: .faust api clanmembers <clanName> [page]")]
+    public static void ClanMembers(ChatCommandContext ctx, string clanName)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Clans);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        // VCF binds the LAST string parameter greedily (the whole remainder), so a clan name with SPACES
+        // (e.g. "Blood Lords") arrives intact here — but an `int page` parameter after it would have stolen
+        // the first word as the name and failed to bind the rest (the old bug: VCF rejected the call before
+        // any reply, so BCH saw "no response"). We take the greedy name and recover an optional trailing
+        // page number ourselves. GetClanMembers matches the raw name OR its Wire.Safe (`_`-encoded) form.
+        int page = 1;
+        string name = (clanName ?? string.Empty).Trim();
+        int sp = name.LastIndexOf(' ');
+        if (sp > 0 && int.TryParse(name.Substring(sp + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) && p > 0)
+        { page = p; name = name.Substring(0, sp).TrimEnd(); }
+
+        var members = Core.Clan.GetClanMembers(name);
+        if (members is null) { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Clans}"); return; }
+
+        var rows = new List<string>(members.Count);
+        foreach (var m in members)
+            rows.Add($"[FAUST:clanmember] name={Wire.Safe(m.Name)} online={(m.Online ? 1 : 0)} " +
+                     $"role={(m.Leader ? "leader" : "member")}");
+
+        Wire.SendPage(ctx, "clanmembers", rows, page);
+        FaustAccessGate.Commit(ctx, gate); // a matched clan is a real result even with an empty roster
+    }
+
+    // ---- §8e Faust oversight: per-feature access + usage reporting (under the stats gate) ----
+
+    [Command("access", description: "BCH: per-feature access snapshot (paged). Usage: .faust api access [page]")]
+    public static void Access(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var rows = new List<string>(FeatureOrder.Length);
+        foreach (var key in FeatureOrder)
+        {
+            var f = Settings.Feature(key);
+            if (f is null) continue;
+            string scope = f.Access switch
+            {
+                AccessLevel.Players => "players",
+                AccessLevel.AdminOnly => "admin",
+                _ => "off",
+            };
+            string cost = f.HasCost ? $"{f.CostItemGuid.Value}x{f.CostQuantity.Value}" : "0";
+            rows.Add($"[FAUST:access] feature={key} scope={scope} cost={cost} " +
+                     $"granted={Core.Unlock.GrantedCount(key)} unlocked={Core.Unlock.UnlockedCount(f)}");
+        }
+        if (Wire.SendPage(ctx, "access", rows, page)) FaustAccessGate.Commit(ctx, gate);
+    }
+
+    [Command("usage", description: "BCH: per-feature usage over the last N days (paged). Usage: .faust api usage [days=7] [page]")]
+    public static void Usage(ChatCommandContext ctx, int days = 7, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var rows = new List<string>();
+        foreach (var u in Core.UsageStats.GetUsage(days))
+        {
+            var f = Settings.Feature(u.Feature);
+            int item = f?.CostItemGuid.Value ?? 0;
+            rows.Add($"[FAUST:usagerow] feature={u.Feature} uses={u.Uses} payers={u.Payers} " +
+                     $"itemspent={u.ItemSpent} item={item} cooldownhits={u.CooldownHits}");
+        }
+        // Always commit: an empty window (no usage yet) is still a valid, real answer.
+        Wire.SendPage(ctx, "usage", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- §9a New-players roster: who joined in the window (under the stats gate) ----
+
+    [Command("newplayers", description: "BCH: roster of players who first joined in the window (paged). Usage: .faust api newplayers roster [days=30] [page]")]
+    public static void NewPlayers(ChatCommandContext ctx, string sub = "roster", int days = 30, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+        if (!string.Equals(sub, "roster", StringComparison.OrdinalIgnoreCase))
+        { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.Stats}"); return; }
+
+        days = Math.Clamp(days, 1, 90);
+        var clans = Core.Clan.GetPlayerClanNames();
+        var castleCounts = CastleCountsBySteam(); // §10a: owned castle hearts per player
+        var roster = Core.Store.GetNewPlayersRoster(days);
+        var rows = new List<string>(roster.Count);
+        foreach (var r in roster)
+        {
+            string clan = clans.TryGetValue(r.steam, out var c) && !string.IsNullOrEmpty(c) ? Wire.Safe(c) : "-";
+            castleCounts.TryGetValue(r.steam, out var castles);
+            rows.Add($"[FAUST:nprow] steam={r.steam} name={Wire.Safe(r.name)} firstseen={r.firstSeen} clan={clan} " +
+                     $"playmins={r.playMinutes} castles={castles}");
+        }
+        // Always commit: an empty window (no new joins) is still a real, valid answer.
+        Wire.SendPage(ctx, $"newplayersroster days={days}", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- §9c Sessions timeline: individual online intervals, per player or all (under the stats gate) ----
+
+    [Command("sessions", description: "BCH: per-session online intervals (paged). Usage: .faust api sessions timeline <all|name|steamId> [days=14] [page]")]
+    public static void Sessions(ChatCommandContext ctx, string sub = "timeline", string target = "all", int days = 14, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Stats);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+        if (!string.Equals(sub, "timeline", StringComparison.OrdinalIgnoreCase))
+        { ctx.Reply($"[FAUST:err] code=badtarget feature={Settings.Stats}"); return; }
+
+        days = Math.Clamp(days, 1, 90);
+        ulong? scope = null;
+        if (!string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!EntityExtensions.TryResolvePlayer(target, out var sid, out _, out _, out _))
+            { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Stats}"); return; }
+            scope = sid;
+        }
+
+        var tl = Core.Store.GetSessionTimeline(scope, days);
+        var rows = new List<string>(tl.Count);
+        foreach (var s in tl)
+            rows.Add($"[FAUST:stl] steam={s.steam} name={Wire.Safe(s.name)} start={s.start} end={s.end}");
+        // Always commit: a window with no sessions is still a real answer (only a bad player target is notfound).
+        Wire.SendPage(ctx, $"sessionstimeline days={days}", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
     // ---- #1 Online positions (admin-default) ----
 
     [Command("positions", description: "BCH: positions of online players (paged). Usage: .faust api positions [page]")]
@@ -408,10 +597,79 @@ internal static class ApiCommands
         if (Wire.SendPage(ctx, "positions", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
+    // ---- Player-position heat map (density grid; per-player or server-wide) ----
+
+    [Command("heatmap", description: "BCH: player-position heat map (density grid). Usage: .faust api heatmap [<all|name|steamId>] [page]")]
+    public static void Heatmap(ChatCommandContext ctx, string target = "all", int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Heatmap);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        ulong? scope = null; string scopeTok = "server";
+        if (!string.Equals(target, "all", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(target, "server", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!EntityExtensions.TryResolvePlayer(target, out var sid, out _, out _, out _))
+            { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Heatmap}"); return; }
+            scope = sid; scopeTok = sid.ToString();
+        }
+
+        var hm = Core.Heatmap.GetHeatmap(scope);
+
+        // Header (page 1): scope, grid resolution, sample total, distinct cells, the OCCUPIED cell bounds,
+        // the FULL-MAP cell extent (§11b — so BCH can draw at a consistent map scale even with sparse data),
+        // and whether collection is currently on (so BCH can tell "off" from "on but no data yet").
+        if (page <= 1)
+        {
+            string mapbounds = "";
+            if (hm.CellSize > 0 && Core.Castle.TryGetMapWorldBounds(out var mnx, out var mnz, out var mxx, out var mxz))
+                mapbounds = $" mapbounds={CellIdx(mnx, hm.CellSize)}:{CellIdx(mnz, hm.CellSize)}:" +
+                            $"{CellIdx(mxx, hm.CellSize)}:{CellIdx(mxz, hm.CellSize)}";
+            ctx.Reply($"[FAUST:hmhead] scope={scopeTok} cell={F(hm.CellSize)} samples={hm.Samples} " +
+                      $"cells={hm.Cells.Count} bounds={hm.MinCx}:{hm.MinCz}:{hm.MaxCx}:{hm.MaxCz}{mapbounds} " +
+                      $"collecting={(Settings.HeatmapEnabled.Value ? 1 : 0)}");
+        }
+
+        // Cells packed compactly (cx:cz:count, …) so a dense map isn't thousands of chat lines.
+        var rows = PackCells(hm.Cells);
+        if (Wire.SendPage(ctx, $"heatmap scope={scopeTok}", rows, page)) FaustAccessGate.Commit(ctx, gate);
+    }
+
     // ---- helpers ----
+
+    /// <summary>Pack heat-map cells into compact "cx:cz:count,…" lines under the wire cap (mirrors the
+    /// activegrid CSV idea), so a dense grid pages as a handful of [FAUST:hmrow] lines, not one per cell.</summary>
+    static List<string> PackCells(List<(int cx, int cz, int count)> cells)
+    {
+        const int Budget = 480;
+        var rows = new List<string>();
+        var sb = new StringBuilder();
+        foreach (var c in cells)
+        {
+            string e = c.cx + ":" + c.cz + ":" + c.count;
+            if (sb.Length > 0 && sb.Length + 1 + e.Length > Budget) { rows.Add($"[FAUST:hmrow] data={sb}"); sb.Clear(); }
+            if (sb.Length > 0) sb.Append(',');
+            sb.Append(e);
+        }
+        if (sb.Length > 0) rows.Add($"[FAUST:hmrow] data={sb}");
+        return rows;
+    }
 
     static Unity.Mathematics.float3 SenderPos(ChatCommandContext ctx) =>
         ctx.Event.SenderCharacterEntity.Read<LocalToWorld>().Position;
+
+    /// <summary>§10a: owned castle-heart count per steam id (one pass over all territories).</summary>
+    static Dictionary<ulong, int> CastleCountsBySteam()
+    {
+        var counts = new Dictionary<ulong, int>();
+        foreach (var t in Core.Castle.GetAllTerritories())
+        {
+            if (!t.HasHeart || t.OwnerSteamId == 0) continue;
+            counts.TryGetValue(t.OwnerSteamId, out var c);
+            counts[t.OwnerSteamId] = c + 1;
+        }
+        return counts;
+    }
 
     /// <summary>Parse the stats <arg> as a 1-based page (playtime/concurrency); default/invalid → 1.</summary>
     static int ArgPage(string arg) =>
@@ -441,15 +699,37 @@ internal static class ApiCommands
         return true;
     }
 
-    /// <summary>One [FAUST:castle] row — shared by single castleinfo lookups and the castles list.
-    /// Unclaimed (heart-less) territory yields owner=_ steam=0 online=0 lastonline=0 (BuildInfo defaults).</summary>
-    static string CastleRow(in CastleService.TerritoryInfo t) =>
-        $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
-        $"steam={t.OwnerSteamId} region={Wire.Region(t.Region)} size={t.SizeBlocks} " +
-        $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
-        $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}";
+    /// <summary>One [FAUST:castle] row — shared by single castleinfo lookups and the castles/decay lists.
+    /// Unclaimed (heart-less) territory yields owner=_ steam=0 online=0 lastonline=0 (BuildInfo defaults).
+    /// When <paramref name="extras"/> (single castleinfo only), append the §8a optional fields — each is
+    /// omitted at its sentinel so Raphael only sees the ones Faust could resolve.</summary>
+    static string CastleRow(in CastleService.TerritoryInfo t, bool extras = false)
+    {
+        var sb = new StringBuilder(
+            $"[FAUST:castle] tindex={t.TerritoryIndex} owner={Wire.Safe(t.HasHeart ? t.OwnerName : "")} " +
+            $"steam={t.OwnerSteamId} region={Wire.Region(t.Region)} size={t.SizeBlocks} " +
+            $"state={CastleService.StateWire(t.State)} decay={t.DecaySeconds} " +
+            $"online={(t.OwnerOnline ? 1 : 0)} lastonline={ToUnix(t.OwnerLastConnected)}");
+        // §11a: territory centroid (where on the map it is) — on EVERY castle row (cheap dict lookup),
+        // omitted when unresolvable. Same world coord space as positions' x/z.
+        if (Core.Castle.TryGetTerritoryCenter(t.TerritoryIndex, out var px, out var pz))
+            sb.Append($" posx={F(px)} posz={F(pz)}");
+        if (extras && t.HasHeart)
+        {
+            if (t.HeartLevel >= 0) sb.Append($" heartlevel={t.HeartLevel}");
+            if (t.Floors >= 0) sb.Append($" floors={t.Floors}");
+            if (t.ClaimedUnix >= 0) sb.Append($" claimed={t.ClaimedUnix}");
+            if (!string.IsNullOrEmpty(t.ClanName)) sb.Append($" clan={Wire.Safe(t.ClanName)}");
+            if (t.TotalItems >= 0) sb.Append($" items={t.TotalItems}");
+        }
+        return sb.ToString();
+    }
 
     static string F(float v) => v.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>World coord → heat-map cell index at <paramref name="cell"/> size (same floor binning the
+    /// store uses), so §11b mapbounds line up exactly with the [FAUST:hmrow] cell indices.</summary>
+    static int CellIdx(float world, float cell) => (int)Math.Floor(world / cell);
 
     /// <summary>A bare invariant decimal (ratios/averages): 2 dp, e.g. stickiness/retention/avg-concurrency.</summary>
     static string Dec(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);

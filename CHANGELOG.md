@@ -7,6 +7,168 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.15.0] - 2026-06-11
+
+Two Raphael tester batches from v0.50.0 plus a new **player-position heat map**, all additive. The Raphael
+batches are under the existing `stats` gate (admin-default; PvP-sensitive — they reveal who plays when): the
+**§9 drill-down batch** (per-player / per-event detail behind the Server-Stats charts — identities and
+timestamps the bucket-count endpoints can't carry) and the **§10 region/roster batch** (castle fill-% data +
+roster extras). The **heat map** adds a new `heatmap` feature/handshake token. Plus the **§11 world-coordinate batch** and a
+**clan-members bugfix**. **ApiVersion → 17** (§9→14, §10→15, heat map→16, §11→17; the handshake advertises 17).
+Raphael gates each addition on the handshake `api`, so older servers degrade gracefully. Mirrored into
+`docs/BCH_INTEGRATION_CONTRACT.md`.
+
+### Added — New-players roster (§9a)
+
+New `.faust api newplayers roster [days=30] [page]` → paged `[FAUST:nprow] steam=… name=… firstseen=<unixUtc>
+clan=<wire|->` — the names behind the new-vs-returning counts: one row per player whose first-ever recorded
+session falls in the window, newest-join-first. `clan` is resolved from the live ECS clan membership (a new
+`ClanService.GetPlayerClanNames()` steam→clan map, offline members included). Same "first seen by Faust"
+caveat as `newplayers`/`firstseen`.
+
+### Added — Distinct-players-per-hour sibling line (§9b)
+
+`stats hours` now emits a second line, `[FAUST:hoursplayers] scope=… p00=<n> … p23=<n>` — the **distinct
+players** active in each UTC hour, the denominator for an Avg/Total toggle (`avg[h] = h[h] / p[h]`). Same
+hour-slicing as `[FAUST:hours]`, counting unique steam IDs per bucket. Emitted right after `[FAUST:hours]`
+in the same reply; older clients ignore it.
+
+### Added — Session-interval timeline (§9c)
+
+New `.faust api sessions timeline <all|name|steamId> [days=14] [page]` → paged `[FAUST:stl] steam=… name=…
+start=<unixUtc> end=<unixUtc>` — individual online intervals for a per-player Gantt timeline. One row per
+session that overlaps the window, start-ascending; `start`/`end` are the real connect→disconnect timestamps
+(open sessions end at "now"), left for the client to clip to its render window. `all` = every player; a
+named/ID target scopes to one (unresolvable → `notfound`).
+
+### Added — Per-player active-days grid (§9d)
+
+New `stats activegrid [days=30] [page]` → paged `[FAUST:agrow] steam=… name=… active=<int>
+days=<dayNum:minutes,…>` — generalises `pdaily` (one player) to **all** players in one query. `active` =
+days played in the window; `days` = a compact CSV of `dayNum:minutes` for each non-zero day, where `dayNum`
+is the **UTC day number** (`unixMidnight / 86400`) to respect the 509-char wire cap. If a row's CSV would
+overflow, the oldest days are dropped (recent-first) — so a row is truncated when its CSV entry-count is
+below `active`, and Faust logs a server-side warning rather than silently capping.
+
+### Added — New-player roster extras (§10a)
+
+`[FAUST:nprow]` now appends `playmins=<int> castles=<int>` — the new player's lifetime playtime (same total
+as `stats players`) and how many castle hearts they currently own (`0` if none). Raphael shows Playtime +
+Castles columns when present and degrades to the name·joined·clan table when absent.
+
+### Added — Region fill-% denominator (§10b)
+
+`[FAUST:region]` (from `stats regions`) now carries `plots=<int>` — the total **buildable** territories in
+the region (claimed + open, the same universe `castles` walks). Raphael charts `castles / plots` (%) per
+region — a true "how popular is building here" signal instead of a raw count that ignores region size.
+
+### Added — By-region over time (§10c)
+
+New `.faust api stats regiondaily [days=30] [page]` → paged `[FAUST:rdrow] day=<unixUtcMidnight> region=…
+castles=<n> plots=<n> players=<n>` — per-day per-region castle/plot/player snapshots for a per-region
+fill-% trend + by-date table. Because Faust keeps **no historical castle data** (the map is read live), this
+is a **forward-accumulating** series: a new region-snapshot store (`FaustStore`) samples **once per UTC day**
+(piggybacked on the day's first connect/disconnect, guarded by `Core.IsReady`), persisted alongside the
+session/concurrency data and bounded by `SessionRetentionDays`. Only sampled days appear (sparse, like
+`pdaily`); history starts at install. The new samples participate in `.faust admin data status` / `clear` /
+`wipe activity` and a shared `RegionStats.Gather()` backs both the live `regions` view and the sampler.
+
+### Added — Player-position heat map (new `heatmap` feature)
+
+`.faust api heatmap [<all|name|steamId>] [page]` returns a binned position-density grid — a **per-player**
+heat map or the **aggregated server-wide** one (same data, summed). A new periodic collector
+(`HeatmapSampler`, a Unity coroutine timer on the server's main thread — Bloodcraft's pattern, since
+V Rising has no per-frame ECS tick safe to borrow) snapshots every online player's `(x,z)` every
+`[Faust.Heatmap] SampleSeconds` (30–300s), bins it into a `CellSize×CellSize` grid,
+and accumulates a per-(player, cell) count in a new `HeatmapStore` (`heatmap.json`). The reply is a
+`[FAUST:hmhead]` header (scope / cell size / sample total / cell bounds / `collecting` flag) + **packed**
+`[FAUST:hmrow] data=cx:cz:count,…` cell lines (many cells per line to keep a dense map small), paged. Its own
+`heatmap` feature gate (AdminOnly default, advertised in the handshake) governs the read; **collection is
+opt-in** (`[Faust.Heatmap] Enabled`, default off — the only collector that runs on a timer). Bounded by
+`MaxCells`; resolution fixed once data exists (change `CellSize` ⇒ wipe first). Cumulative density (no time
+axis yet). Participates in `.faust admin data status` and `.faust admin data wipe heatmap|all`. Raphael will
+build the heat-map visualization on its side.
+
+### Added — Territory world coordinates (§11a) + full-map heatmap bounds (§11b)
+
+Every `[FAUST:castle]` row (`castleinfo`, `castles`, `decay`) and `[FAUST:plot]` row now carries optional
+`posx`/`posz` — the territory's **centroid world coords** (mean of its block coordinates via KindredCommands'
+`(10·block−6400)/2` transform, computed once in `CastleService.EnsureBlockMap`), the same space as `positions`
+`x`/`z`, so a client can show *where on the map* a plot is. Omitted when a territory has no resolvable blocks.
+The `[FAUST:hmhead]` heat-map header also gains optional `mapbounds` — the full buildable-map cell extent at the
+current `CellSize` — so a sparse heat map can be drawn at true map scale instead of a tiny occupied-cells board.
+
+### Fixed — `clanmembers` no longer times out on clan names with spaces
+
+`.faust api clanmembers <clanName>` rejected any clan name containing a space (e.g. "Blood Lords"): VCF binds a
+non-final `string` to one token, so the trailing `int page` parameter stole the second word and the whole call
+failed to bind — VCF replied an error to chat (not a `[FAUST:*]` line), so BCH/Raphael saw a no-response timeout.
+The page parameter was dropped from the signature (clan rosters fit one page; a trailing page integer is still
+recovered manually), letting VCF capture the full multi-word name greedily. Names resolve raw or `_`-encoded.
+
+### Notes
+
+- **ApiVersion → 17** (the wire grew across the Raphael batches, the heat map, and §11); only the heat map adds a
+  new handshake token (`heatmap`) — the §9/§10/§11 additions reuse existing gates. Plugin version stays
+  **0.15.0** — all three fold into the same unreleased release. Verified by a clean Release build; in-game
+  validation (alongside the still-pending §8/§9 reads, and the heat-map sampler/grid) is queued for a test
+  server. **§3** (out-of-bounds region → real name or the `-` sentinel, never `none`) and **§5** (native-map
+  markers via `.faust admin showpositions`) remain already-implemented items pending live validation.
+
+## [0.14.0] - 2026-06-11
+
+The **§8 tester batch** from Raphael (live tester feedback) — richer Castle Info, prisoners, clan
+members, an activity breakdown, and Faust usage/access oversight. All additive; **ApiVersion → 13**.
+Raphael gates each addition on the handshake `api`, so older servers degrade gracefully. Mirrored into
+`docs/BCH_INTEGRATION_CONTRACT.md`.
+
+### Added — Castle Info extras (§8a)
+
+`castleinfo` now appends optional fields to its `[FAUST:castle]` row (single-lookup ONLY — the
+`castles`/`decay` lists stay cheap): `floors` (building storeys), `clan` (owning clan name), and `items`
+(the castle's grand-total item count — the single high-level number, NOT the per-item breakdown, so no
+raid intel leaks). Each token is omitted when Faust can't resolve it. `heartlevel` and `claimed` (heart
+placement time) are reserved but **not yet emitted** — the game exposes no confirmable numeric heart-level
+field nor a reliable placement timestamp.
+
+### Added — Prisoners in Castle Resources (§8b)
+
+`resources` now reports a castle's prisoners: a `prisoners=<n>` count on the `[FAUST:res]` header and one
+`[FAUST:prisoner] name=… bloodtype=… bloodquality=…` row per prisoner (appended after the item rows, paged
+together under `cmd=resources`). Prisoners are resolved from the game's `ImprisonedBuff` targets attributed
+to the castle's territory; blood fields sentinel (`-`/`-1`) when a unit carries no blood.
+
+### Added — Clan members endpoint (§8c)
+
+New `.faust api clanmembers <clanName> [page]` (under the `clans` gate) → paged
+`[FAUST:clanmember] name=… online=<0|1> role=<leader|member>`. Name matches case-insensitively against the
+clan name and its wire-safe form. Cleaner than stuffing a member list on the `[FAUST:clan]` row.
+
+### Added — New-vs-returning split on the daily series (§8d)
+
+`stats daily` rows now carry `new=<int> returning=<int>` (new = of that day's DAU, players whose first-ever
+recorded session is that day; returning = `dau - new`) for a stacked activity breakdown. Same
+"first-seen-by-Faust" caveat as `newplayers`.
+
+### Added — Faust usage & access oversight (§8e)
+
+Two admin-oversight endpoints (under the `stats` gate), both pure server-side accounting Faust already owns
+— no client→server usage reporting:
+- `.faust api access [page]` → `[FAUST:access] feature=… scope=<off|admin|players> cost=<guid>x<qty>
+  granted=<n> unlocked=<n>` — who can use each feature (server-wide picture), how many players are
+  granted/unlocked (`unlocked=-1` for features with no unlock criterion).
+- `.faust api usage [days=7] [page]` → `[FAUST:usagerow] feature=… uses=<n> payers=<n> itemspent=<int>
+  item=<guid> cooldownhits=<n>` — how often each feature is used and what it costs players, over a rolling
+  window. Backed by a new per-(feature, UTC-day) tally store (`feature_usage_stats.json`), bounded by
+  `SessionRetentionDays`, recorded from the gate's commit/deny paths. Surfaced in `.faust admin data
+  status` and wiped via `.faust admin data wipe usage|all`.
+
+### Notes
+
+- **ApiVersion → 13** (the wire grew); no new handshake token (the new endpoints reuse the `clans`/`stats`
+  gates). Verified by a clean Release build; in-game validation of the IL2CPP-dependent reads (8a floors,
+  8b prisoner linkage + blood) is pending a test server.
+
 ## [0.13.0] - 2026-06-10
 
 ### Changed — every capability now ships **AdminOnly** by default

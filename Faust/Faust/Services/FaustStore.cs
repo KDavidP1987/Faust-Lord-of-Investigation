@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Faust.Config;
 
@@ -33,12 +34,25 @@ internal sealed class FaustStore
         public int Count { get; set; }          // online player count at T
     }
 
+    // §10c: one per-region daily snapshot (UTC). Faust has no historical castle data (the map is read
+    // live), so this is a forward-accumulating series — one sample per region per UTC day, taken on the
+    // day's first connect/disconnect, persisted like the concurrency series.
+    sealed class RegionSample
+    {
+        public long Day { get; set; }           // Unix UTC midnight
+        public string Region { get; set; }       // "-" = open world / no region
+        public int Castles { get; set; }         // claimed hearts in the region that day
+        public int Plots { get; set; }           // total buildable territories in the region
+        public int Players { get; set; }         // online players in the region at sample time
+    }
+
     sealed class SaveFile
     {
         // Reserved for a future on-load migration; currently written but not yet read/branched on.
         public int SchemaVersion { get; set; } = 1;
         public List<Session> Sessions { get; set; } = new();
         public List<ConcPoint> Concurrency { get; set; } = new();
+        public List<RegionSample> RegionDaily { get; set; } = new(); // §10c (absent in pre-0.15 files → empty)
         public Dictionary<string, string> Names { get; set; } = new(); // steamId -> last-known name
     }
 
@@ -54,8 +68,10 @@ internal sealed class FaustStore
 
     readonly List<Session> _sessions = new();
     readonly List<ConcPoint> _concurrency = new();
+    readonly List<RegionSample> _regionDaily = new();
     readonly Dictionary<ulong, string> _names = new();
     readonly HashSet<ulong> _online = new();
+    long _lastRegionSampleDay; // UTC midnight of the most recent region snapshot (0 = none yet)
 
     static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "sessions.json");
@@ -80,14 +96,20 @@ internal sealed class FaustStore
             }
             _concurrency.Clear();
             if (file.Concurrency is not null) _concurrency.AddRange(file.Concurrency);
+            _regionDaily.Clear();
+            if (file.RegionDaily is not null) _regionDaily.AddRange(file.RegionDaily);
             _names.Clear();
             if (file.Names is not null)
                 foreach (var kvp in file.Names)
                     if (ulong.TryParse(kvp.Key, out var id)) _names[id] = kvp.Value;
 
-            PruneOldSessions(); // honour SessionRetentionDays on every boot
+            PruneOldSessions();      // honour SessionRetentionDays on every boot
+            PruneOldRegionDaily();
+            // Resume the once-per-day region cadence where we left off (don't re-sample today after a restart).
+            _lastRegionSampleDay = 0;
+            foreach (var r in _regionDaily) if (r.Day > _lastRegionSampleDay) _lastRegionSampleDay = r.Day;
 
-            Core.Log.LogInfo($"[FAUST STORE] loaded {_sessions.Count} session(s), {_concurrency.Count} concurrency point(s), {_names.Count} name(s).");
+            Core.Log.LogInfo($"[FAUST STORE] loaded {_sessions.Count} session(s), {_concurrency.Count} concurrency point(s), {_regionDaily.Count} region sample(s), {_names.Count} name(s).");
         }
         catch (Exception ex)
         {
@@ -100,7 +122,7 @@ internal sealed class FaustStore
         try
         {
             Directory.CreateDirectory(SaveDir);
-            var file = new SaveFile { Sessions = _sessions, Concurrency = _concurrency };
+            var file = new SaveFile { Sessions = _sessions, Concurrency = _concurrency, RegionDaily = _regionDaily };
             foreach (var kvp in _names) file.Names[kvp.Key.ToString()] = kvp.Value;
             File.WriteAllText(SavePath, JsonSerializer.Serialize(file, new JsonSerializerOptions { WriteIndented = false }));
         }
@@ -297,18 +319,28 @@ internal sealed class FaustStore
     }
 
     /// <summary>
-    /// Per-day distinct online players (DAU) and total play-minutes for the last <paramref name="days"/>
-    /// days (oldest→newest, today last). Playtime is sliced at UTC midnight; a player counts toward a
-    /// day's DAU if any session overlapped that day.
+    /// Per-day distinct online players (DAU), total play-minutes, and a new-vs-returning split for the
+    /// last <paramref name="days"/> days (oldest→newest, today last). Playtime is sliced at UTC midnight;
+    /// a player counts toward a day's DAU if any session overlapped that day. <c>newCount</c> = of that
+    /// day's DAU, those whose FIRST recorded session is that same day (§8d); returning = <c>dau - new</c>.
+    /// Like <see cref="GetNewPlayersSeries"/>, "new" means first-seen-by-Faust (bounded by retention).
     /// </summary>
-    public List<(long dayMidnightUtc, int dau, long minutes)> GetDailySeries(int days)
+    public List<(long dayMidnightUtc, int dau, long minutes, int newCount)> GetDailySeries(int days)
     {
         long now = Now;
         long today = DayFloor(now);
         long start = today - (long)(days - 1) * Day;
 
+        // First-seen connect time per player across ALL retained sessions (so "new" is the player's
+        // first-ever day, not merely their first day inside the window).
+        var firstSeen = new Dictionary<ulong, long>();
+        foreach (var s in _sessions)
+            if (!firstSeen.TryGetValue(s.Steam, out var cur) || s.Connect < cur)
+                firstSeen[s.Steam] = s.Connect;
+
         var secs = new long[days];
         var dau = new HashSet<ulong>[days];
+        var newOnDay = new int[days];
         for (int i = 0; i < days; i++) dau[i] = new HashSet<ulong>();
 
         foreach (var s in _sessions)
@@ -325,15 +357,19 @@ internal sealed class FaustStore
                 if (idx >= 0 && idx < days)
                 {
                     secs[idx] += sliceEnd - t;
-                    dau[idx].Add(s.Steam);
+                    // First time we attribute this player to this day: tally DAU, and tally "new" if
+                    // the player's first-ever session day equals this day.
+                    if (dau[idx].Add(s.Steam)
+                        && firstSeen.TryGetValue(s.Steam, out var first) && DayFloor(first) == dayMid)
+                        newOnDay[idx]++;
                 }
                 t = sliceEnd;
             }
         }
 
-        var result = new List<(long, int, long)>(days);
+        var result = new List<(long, int, long, int)>(days);
         for (int i = 0; i < days; i++)
-            result.Add((start + (long)i * Day, dau[i].Count, secs[i] / 60));
+            result.Add((start + (long)i * Day, dau[i].Count, secs[i] / 60, newOnDay[i]));
         return result;
     }
 
@@ -453,6 +489,201 @@ internal sealed class FaustStore
         var result = new List<(long, long)>();
         for (int i = 0; i < days; i++)
             if (secs[i] > 0) result.Add((start + (long)i * Day, secs[i] / 60));
+        return result;
+    }
+
+    // ---- §9 drill-down detail (the per-player / per-event data behind the aggregate charts) ----
+    //
+    // These four back the v0.50.0 tester batch: rosters and timelines that need IDENTITIES and
+    // TIMESTAMPS the bucket-count endpoints above can't carry, so Raphael genuinely can't derive them.
+
+    /// <summary>
+    /// §9a: every player whose FIRST-ever recorded session falls within the last <paramref name="days"/>
+    /// days — the names behind the new-vs-returning counts — most-recent join first. First-seen is bounded
+    /// by retained data (SessionRetentionDays), the same definition the <c>new</c> count uses.
+    /// </summary>
+    public List<(ulong steam, string name, long firstSeen, long playMinutes)> GetNewPlayersRoster(int days)
+    {
+        long now = Now;
+        long start = DayFloor(now) - (long)(days - 1) * Day;
+
+        var firstSeen = new Dictionary<ulong, long>();
+        var totalSecs = new Dictionary<ulong, long>();
+        foreach (var s in _sessions)
+        {
+            if (!firstSeen.TryGetValue(s.Steam, out var cur) || s.Connect < cur)
+                firstSeen[s.Steam] = s.Connect;
+            long end = s.Disconnect == 0 ? now : s.Disconnect;   // §10a: lifetime playtime (same total as `stats players`)
+            if (end > s.Connect) { totalSecs.TryGetValue(s.Steam, out var t); totalSecs[s.Steam] = t + (end - s.Connect); }
+        }
+
+        var result = new List<(ulong, string, long, long)>();
+        foreach (var kv in firstSeen)
+            if (kv.Value >= start)
+            {
+                totalSecs.TryGetValue(kv.Key, out var secs);
+                result.Add((kv.Key, _names.TryGetValue(kv.Key, out var n) ? n : kv.Key.ToString(), kv.Value, secs / 60));
+            }
+        result.Sort((a, b) => b.Item3.CompareTo(a.Item3)); // newest join first
+        return result;
+    }
+
+    /// <summary>
+    /// §9b: DISTINCT players active in each UTC hour-of-day (24 buckets), the denominator for the
+    /// "average minutes per active player" toggle on the hours chart. Same hour-slicing as
+    /// <see cref="GetHourHistogram"/>, but counting unique steam IDs per bucket instead of summing minutes.
+    /// </summary>
+    public int[] GetHourPlayerCounts(ulong? steam)
+    {
+        long now = Now;
+        var sets = new HashSet<ulong>[24];
+        for (int i = 0; i < 24; i++) sets[i] = new HashSet<ulong>();
+        foreach (var s in _sessions)
+        {
+            if (steam.HasValue && s.Steam != steam.Value) continue;
+            long t = s.Connect, end = s.Disconnect == 0 ? now : s.Disconnect;
+            int guard = 0;
+            while (t < end && guard++ < MaxSliceIterations)
+            {
+                int hour = DateTimeOffset.FromUnixTimeSeconds(t).UtcDateTime.Hour;
+                sets[hour].Add(s.Steam);
+                t = (t - (t % Hour)) + Hour; // advance to the next exact UTC hour
+            }
+        }
+        var counts = new int[24];
+        for (int h = 0; h < 24; h++) counts[h] = sets[h].Count;
+        return counts;
+    }
+
+    /// <summary>
+    /// §9c: individual online intervals (true connect→disconnect, open sessions end at "now") for one
+    /// player or all, over the last <paramref name="days"/> days — a session is included if it OVERLAPS the
+    /// window; start/end are the real timestamps (Raphael clips them to its render window). Start-ascending.
+    /// </summary>
+    public List<(ulong steam, string name, long start, long end)> GetSessionTimeline(ulong? steam, int days)
+    {
+        long now = Now;
+        long windowStart = DayFloor(now) - (long)(days - 1) * Day;
+        var result = new List<(ulong, string, long, long)>();
+        foreach (var s in _sessions)
+        {
+            if (steam.HasValue && s.Steam != steam.Value) continue;
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (end <= windowStart) continue; // entirely before the window
+            result.Add((s.Steam, _names.TryGetValue(s.Steam, out var n) ? n : s.Steam.ToString(), s.Connect, end));
+        }
+        result.Sort((a, b) => a.Item3.CompareTo(b.Item3)); // start ascending
+        return result;
+    }
+
+    /// <summary>
+    /// §9d: per-player active-days grid over the last <paramref name="days"/> days — for every player with
+    /// any activity in the window, the count of days played plus a compact CSV of <c>day:minutes</c> pairs
+    /// (zero-days omitted). <c>day</c> is the UTC day NUMBER (days since epoch = unixMidnight/86400) to keep
+    /// the line under the 509-char wire cap; multiply by 86400 for the midnight timestamp. If a row's CSV
+    /// would overflow the budget the OLDEST days are dropped (recent-first), so a consumer can detect a
+    /// truncated row when its CSV entry-count is less than <c>active</c>. Most-active player first.
+    /// </summary>
+    public List<(ulong steam, string name, int activeDays, string daysCsv)> GetActiveGrid(int days)
+    {
+        long now = Now;
+        long start = DayFloor(now) - (long)(days - 1) * Day;
+
+        var perPlayer = new Dictionary<ulong, long[]>();
+        foreach (var s in _sessions)
+        {
+            long end = s.Disconnect == 0 ? now : s.Disconnect;
+            if (end <= start) continue;
+            if (!perPlayer.TryGetValue(s.Steam, out var arr)) { arr = new long[days]; perPlayer[s.Steam] = arr; }
+            long t = Math.Max(s.Connect, start);
+            int guard = 0;
+            while (t < end && guard++ < days + 1)
+            {
+                long dayMid = DayFloor(t);
+                int idx = (int)((dayMid - start) / Day);
+                long sliceEnd = Math.Min(end, dayMid + Day);
+                if (idx >= 0 && idx < days) arr[idx] += sliceEnd - t;
+                t = sliceEnd;
+            }
+        }
+
+        const int CsvBudget = 460; // keep the whole [FAUST:agrow] line under the 509-char wire cap
+        var result = new List<(ulong, string, int, string)>(perPlayer.Count);
+        foreach (var kv in perPlayer)
+        {
+            var arr = kv.Value;
+            int active = 0, emitted = 0;
+            var sb = new StringBuilder();
+            // Walk most-recent-first so an over-budget row drops its OLDEST days, not its newest.
+            for (int i = days - 1; i >= 0; i--)
+            {
+                long mins = arr[i] / 60;
+                if (mins <= 0) continue;
+                active++;
+                long dayNum = (start + (long)i * Day) / Day; // days since epoch (compact, UTC)
+                string entry = (emitted == 0 ? "" : ",") + dayNum + ":" + mins;
+                if (sb.Length + entry.Length <= CsvBudget) { sb.Append(entry); emitted++; }
+            }
+            if (active == 0) continue;
+            if (emitted < active)
+                Core.Log.LogWarning($"[FAUST STORE] activegrid: steam {kv.Key} had {active} active day(s), emitted {emitted} (line cap).");
+            result.Add((kv.Key, _names.TryGetValue(kv.Key, out var n) ? n : kv.Key.ToString(), active, sb.ToString()));
+        }
+        result.Sort((a, b) => b.Item3.CompareTo(a.Item3)); // most-active first
+        return result;
+    }
+
+    // ---- §10c per-region daily series (forward-accumulating; Faust keeps no historical castle data) ----
+
+    /// <summary>True once per UTC day — gate the (ECS-touching) region snapshot so we sample at most once
+    /// per day, on that day's first connect/disconnect. Returns false until the day rolls over again.</summary>
+    public bool ShouldSampleRegions() => DayFloor(Now) > _lastRegionSampleDay;
+
+    /// <summary>
+    /// Record today's per-region snapshot (castles / buildable plots / online players), upserting the
+    /// (today, region) rows. The caller gathers the live counts from ECS (see <c>RegionStats.Gather</c>)
+    /// and passes them in, keeping this store ECS-free. Throttled by <see cref="ShouldSampleRegions"/>;
+    /// bounded by SessionRetentionDays. History starts at install — there is no pre-install region data.
+    /// </summary>
+    public void RecordRegionSnapshot(IReadOnlyList<(string region, int players, int castles, int plots)> rows)
+    {
+        if (rows is null || rows.Count == 0) return;
+        long day = DayFloor(Now);
+        foreach (var r in rows)
+        {
+            string region = string.IsNullOrEmpty(r.region) ? "-" : r.region;
+            var existing = _regionDaily.Find(x => x.Day == day && string.Equals(x.Region, region, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null) { existing.Castles = r.castles; existing.Plots = r.plots; existing.Players = r.players; }
+            else _regionDaily.Add(new RegionSample { Day = day, Region = region, Castles = r.castles, Plots = r.plots, Players = r.players });
+        }
+        _lastRegionSampleDay = day;
+        PruneOldRegionDaily();
+        SaveSync();
+    }
+
+    /// <summary>Drop region samples older than SessionRetentionDays (0 = keep forever).</summary>
+    void PruneOldRegionDaily()
+    {
+        int days = Settings.SessionRetentionDays.Value;
+        if (days <= 0) return;
+        long cutoff = DayFloor(Now) - (long)days * Day;
+        _regionDaily.RemoveAll(s => s.Day < cutoff);
+    }
+
+    /// <summary>
+    /// The per-region daily snapshots within the last <paramref name="days"/> days (oldest day first,
+    /// then region name). Sparse: only days that were actually sampled appear (a day with no player
+    /// activity has no row), accumulated from install — consistent with the other server-lifetime series.
+    /// </summary>
+    public List<(long day, string region, int castles, int plots, int players)> GetRegionDaily(int days)
+    {
+        long start = DayFloor(Now) - (long)(days - 1) * Day;
+        var result = new List<(long, string, int, int, int)>();
+        foreach (var s in _regionDaily)
+            if (s.Day >= start) result.Add((s.Day, s.Region, s.Castles, s.Plots, s.Players));
+        result.Sort((a, b) => a.Item1 != b.Item1
+            ? a.Item1.CompareTo(b.Item1)
+            : string.Compare(a.Item2, b.Item2, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
@@ -613,35 +844,39 @@ internal sealed class FaustStore
     // ---- admin data management (manual status / clear / wipe; design: collection control §10) ----
 
     /// <summary>Footprint of the collected activity, for the <c>.faust admin data status</c> readout.</summary>
-    public (int sessions, int concurrency, int names, long oldestConnectUnix) GetStorageStats()
+    public (int sessions, int concurrency, int regionSamples, int names, long oldestConnectUnix) GetStorageStats()
     {
         long oldest = 0;
         foreach (var s in _sessions) if (oldest == 0 || s.Connect < oldest) oldest = s.Connect;
-        return (_sessions.Count, _concurrency.Count, _names.Count, oldest);
+        return (_sessions.Count, _concurrency.Count, _regionDaily.Count, _names.Count, oldest);
     }
 
-    /// <summary>Prune CLOSED sessions and concurrency points older than <paramref name="days"/> days
-    /// on demand (independent of the SessionRetentionDays config). Open sessions are never dropped.
-    /// Returns the number of records removed.</summary>
+    /// <summary>Prune CLOSED sessions, concurrency points, and region samples older than
+    /// <paramref name="days"/> days on demand (independent of the SessionRetentionDays config). Open
+    /// sessions are never dropped. Returns the number of records removed.</summary>
     public int ClearOlderThan(int days)
     {
         if (days <= 0) return 0;
         long cutoff = Now - (long)days * 86400L;
-        int before = _sessions.Count + _concurrency.Count;
+        int before = _sessions.Count + _concurrency.Count + _regionDaily.Count;
         _sessions.RemoveAll(s => s.Disconnect != 0 && s.Disconnect < cutoff);
         _concurrency.RemoveAll(c => c.T < cutoff);
-        int removed = before - (_sessions.Count + _concurrency.Count);
+        _regionDaily.RemoveAll(r => r.Day < cutoff);
+        int removed = before - (_sessions.Count + _concurrency.Count + _regionDaily.Count);
         if (removed > 0) SaveSync();
         return removed;
     }
 
-    /// <summary>Erase ALL collected activity (sessions, concurrency, name cache). Players currently
-    /// online get a fresh session re-opened so live tracking continues seamlessly. Returns records erased.</summary>
+    /// <summary>Erase ALL collected activity (sessions, concurrency, region samples, name cache). Players
+    /// currently online get a fresh session re-opened so live tracking continues seamlessly. Returns
+    /// records erased.</summary>
     public int WipeAll()
     {
-        int count = _sessions.Count + _concurrency.Count + _names.Count;
+        int count = _sessions.Count + _concurrency.Count + _regionDaily.Count + _names.Count;
         _sessions.Clear();
         _concurrency.Clear();
+        _regionDaily.Clear();
+        _lastRegionSampleDay = 0;
         _names.Clear();
         if (Settings.SessionTracking.Value)
             foreach (var steam in _online)

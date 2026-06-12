@@ -2,24 +2,28 @@
 
 ![Faust, Lord of Investigation](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/docs/img/faust-cover.jpg)
 
-A **server-side** mod for V Rising dedicated servers that answers on-demand **investigation /
-information** queries — about players, castles, plots, objects, and server activity — delivered as
-structured data for its companion client **[Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK)**
-to render as in-game panels, overlays, dashboards, and graphs (and also available as plain `.faust`
-chat commands).
+A **server-side** mod that gives your V Rising server its missing **information layer** — the
+authoritative, global view of players, castles, plots, and activity that no game client can see on its
+own. Out of the box it's a powerful **moderation and oversight** console for admins; from there, *you*
+decide how much of that knowledge to share — as **PvP intel** (scout a rival's castle, resources, and
+activity windows — for a price), or as **community features** on a PvE server (open plots, who's
+online, server stats, clan rosters). Every capability is controlled per feature — Off, admin-only, or
+players — with an optional **item cost** (the Faustian toll), cooldown, or unlock. Pairs with its
+companion client **[Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK)**, or works from `.faust`
+chat.
 
-> **Faust is designed to be run alongside Raphael.** Raphael is the client that turns Faust's data into
-> a usable UI — the Player Positions map, the All-Plots castle table, the Server Stats dashboards, the
-> Clans tab, and the player-activity charts. Faust is the **server brain**; Raphael is the **screen**.
-> You *can* use Faust on its own from chat, but the experience these two are built for is the pair.
+### 🧠 Faust is the server brain; Raphael is the screen
 
-Faust is, first and foremost, an **administrative and moderation tool** — the global, authoritative
-view of your server. On top of that, admins can **grant** parts of it to players: as a **strategic
-tool** on PvP servers and a **community-building tool** on PvE servers. Everything is **controlled per
-feature** — your server's admins decide what, if anything, players can see (Off / Admin-only / Players),
-and may attach an optional **item cost** — the Faustian toll — a cooldown, an unlock, or a location
-requirement when they want to. Sensitive intel defaults to admin-only. Admins also control what Faust
-**collects in the background**, so it never costs server performance.
+**Faust is designed to be run alongside [Raphael, Lord of Wisdom](https://discord.gg/usC9QgBrXK).**
+Raphael is the client that turns Faust's data into a usable UI — the Player Positions map, the All-Plots
+castle table, the Server Stats dashboards, the Clans tab, and the player-activity charts. You **can** use
+Faust on its own from chat, but the experience these two are built for is the pair.
+
+Behind that, every feature is **independently controlled** — who can use it (Off / Admin-only /
+Players), the price, a cooldown or usage window, a PvP/PvE restriction, a progression unlock, or a
+proximity requirement. **Sensitive intel defaults to admin-only**, so a fresh install is locked down;
+you open up only what you want, on the terms you set. Admins also control what Faust **collects in the
+background**, so it never costs server performance.
 
 ---
 
@@ -59,8 +63,8 @@ every query also works from chat.
 
 **Investigation queries:**
 
-- **Castle & plot info** — a plot's owner, region, size, decay state & time, and the owner's
-  online / last-online.
+- **Castle & plot info** — a plot's owner, region, **map location (X,Z)**, size, decay state & time, and
+  the owner's online / last-online.
 - **Plot availability** — open building plots across the whole map, largest first.
 - **Full castle map** — every territory (claimed + open) in one list: owner, region, size, state,
   decay, online *(admin-default)*.
@@ -69,12 +73,18 @@ every query also works from chat.
 - **Player info** — online state, last-online, and (tracked by Faust over time) total playtime,
   session count, logins per week, and peak play hour.
 - **Online player positions** *(admin-default, PvP-sensitive)* — now with each player's region.
+- **Player-position heat map** *(admin-default, opt-in collection)* — snapshots positions on a timer
+  (every 30s–5min) and bins them into a grid, so you can see **where players spend time** — per player or
+  aggregated for the whole server. Built for Raphael to render as a heat map.
 - **Enemy castle resource totals** — sum everything stashed in a castle *(admin-default; a natural
   one to price or restrict to PvP)*.
 - **Server stats** — a playtime leaderboard and a server-population history, ready for graphs.
 - **Activity analytics** — chart-ready breakdowns of when people play (by hour of day **and day of
   week**), daily active players + play-minutes, new arrivals per day, how long sessions last, and a
   **per-player daily trend** — server-wide or per player.
+- **Activity drill-down** — the detail behind the charts: a **roster of who joined recently** (name,
+  when, clan), each player's **individual session timeline**, an **active-days grid** across all players,
+  and an average-per-player cut on the hourly chart *(admin-default)*.
 - **Clan composition** — how many players are **in clans vs going solo** (with the currently-online
   split), plus a per-clan roster: size, who's online, **how many castles they hold**, and the leader
   *(admin-default)*.
@@ -117,7 +127,7 @@ clients.
 3. Drop `Faust.dll` into `BepInEx/plugins/`.
 4. Start the server once to generate `BepInEx/config/kdpen.Faust.cfg`, then edit and restart.
 
-> **Stop the server before replacing `Faust.dll`** — a running server file-locks the DLL.
+**⚠ Stop the server before replacing `Faust.dll`** — a running server file-locks the DLL.
 
 ## Dependencies & compatibility
 
@@ -144,13 +154,14 @@ driven by the BloodCraftHub UI, but each works from chat too.
 
 | Command | What it does |
 |---|---|
-| `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, size, decay state & time, owner online/last-online |
-| `.faust api plots [page]` | Open building plots across the map, largest first |
-| `.faust api castles [page]` | Every territory (claimed + open) — owner, region, size, state, decay, online *(admin-default)* |
+| `.faust api castleinfo <here\|nearest\|tindex>` | A plot's owner, region, **map location (X,Z)**, size, decay state & time, owner online/last-online — plus floors, owning clan & total item count |
+| `.faust api plots [page]` | Open building plots across the map, largest first — with **map location (X,Z)** |
+| `.faust api castles [page]` | Every territory (claimed + open) — owner, region, map location, size, state, decay, online *(admin-default)* |
 | `.faust api decay [page]` | Claimed castles ranked by soonest-to-decay + owner last-online *(admin-default)* |
 | `.faust api pinfo <name\|steamId>` | A player's online state, last-online, **playtime, sessions, logins/week & peak hour** (yourself always; others admin-gated) |
 | `.faust api positions [page]` | Locations (and regions) of online players *(admin-default)* |
-| `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle *(admin-default; great to price/PvP-gate)* |
+| `.faust api heatmap [all\|player] [page]` | Player-position **heat map** — density grid of where players spend time, per-player or server-wide *(admin-default; opt-in collection)* |
+| `.faust api resources <here\|nearest\|tindex> [page]` | Total resources stashed in a castle + prisoners held (name, blood type/quality) *(admin-default; great to price/PvP-gate)* |
 | `.faust api stats <playtime\|concurrency> [page]` | Playtime leaderboard / server population history |
 | `.faust api stats hours [player]` | Activity by hour-of-day (24 buckets) — server-wide or one player |
 | `.faust api stats daily [days]` | Daily active players + play-minutes for the last N days |
@@ -161,9 +172,16 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api stats population` | Active players (DAU/WAU/MAU) + retention + new-vs-returning |
 | `.faust api stats recency` | How many players seen in last 24h / 7d / 30d vs dormant |
 | `.faust api stats peak [days]` | Concurrency summary — peak / average / p95 / live count |
-| `.faust api stats regions [page]` | Online players + claimed castles per map region |
+| `.faust api stats regions [page]` | Online players + claimed castles + total buildable plots per map region (for castle "fill %") |
+| `.faust api stats regiondaily [days] [page]` | Castles / plots / players **per region per day** — region popularity over time |
 | `.faust api stats players [page]` | Per-player activity roster (active today/week, last-seen, sessions, playtime, idle) |
+| `.faust api stats activegrid [days] [page]` | Per-player active-days grid — which days each player played in the window |
+| `.faust api newplayers roster [days] [page]` | Roster of who joined recently — name, when, clan, playtime & castles owned |
+| `.faust api sessions timeline <all\|player> [days] [page]` | Individual online sessions (start/end) for a per-player activity timeline |
 | `.faust api clans [page]` | Clan composition — clanned vs independent + per-clan roster (size, online, castles, leader) *(admin-default)* |
+| `.faust api clanmembers <clan> [page]` | One clan's member roster — who's online, who leads *(admin-default)* |
+| `.faust api access [page]` | Per-feature access snapshot — who can use each Faust feature + price + granted/unlocked counts *(admin-default)* |
+| `.faust api usage [days] [page]` | Per-feature usage over the last N days — uses, distinct payers, items spent, cooldown hits *(admin-default)* |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
 | `.faust api ping` | Connection test (`[FAUST:pong]`) |
 | `.faust` · `.faust help [topic]` | Overview / topic-by-topic help |
@@ -195,8 +213,8 @@ effect on server restart.
 | Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
-`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`, `clans`. **Every feature defaults
-to AdminOnly** — Faust is an admin tool first; open up whichever ones you want to share, per server.
+`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`, `clans`, `heatmap`. **Every feature
+defaults to AdminOnly** — Faust is an admin tool first; open up whichever ones you want to share, per server.
 
 ### Collection controls — what Faust gathers in the background
 
@@ -211,6 +229,10 @@ session/population history accumulates over time, and you can bound or switch it
 | Faust.Collection | MaxConcurrencyPoints | `4000` | Cap on stored population samples (oldest trimmed); bounds memory + file size. `0` disables sampling |
 | Faust.Collection | SessionRetentionDays | `0` | Auto-prune sessions older than N days (`0` = keep forever) — bound long-term growth on busy/long-lived servers |
 | Faust.Collection | DataNamespace | *(empty)* | Empty = one shared dataset (kept across world wipes). Set a per-world name (e.g. `season3`) to keep each world's data separate |
+| Faust.Heatmap | Enabled | `false` | Player-position **heat map** collection. The only collector that runs on a timer, so **off by default** — opt in to build density maps (read via `.faust api heatmap`) |
+| Faust.Heatmap | SampleSeconds | `60` | How often to snapshot online positions (clamped **30–300** — every 30s to 5 min) |
+| Faust.Heatmap | CellSize | `25` | Grid resolution (world units per cell). Fixed once data exists — wipe the heat map before changing it |
+| Faust.Heatmap | MaxCells | `250000` | Cap on stored (player, cell) entries (bounds memory/disk); existing cells keep counting past the cap |
 
 Faust's data is stored in `BepInEx/config/Faust/` — **on the server, not in the world save — so it
 survives a world wipe.** That's deliberate: the same players return, so their playtime/stats stay
@@ -230,7 +252,7 @@ Admins can override features at runtime — these persist across restarts:
 | `.faust admin unlocks <player>` | Show a player's V-blood defeats + granted features |
 | `.faust admin data status` | Footprint of collected data (counts, oldest record, disk size, namespace, retention) |
 | `.faust admin data clear <days>` | Prune activity (sessions + population) older than N days, on demand |
-| `.faust admin data wipe <activity\|unlocks\|usage\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts (`confirm` required) |
+| `.faust admin data wipe <activity\|unlocks\|usage\|heatmap\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts, `heatmap` to clear the density map (`confirm` required) |
 | `.faust admin showpositions <on\|off\|status>` | *Experimental* — put online players on the native in-game map (off by default; verify admin-only visibility on a test server first) |
 
 A feature can also require a **progression unlock** before players may use it — set

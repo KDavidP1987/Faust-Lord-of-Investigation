@@ -38,7 +38,7 @@ with one line:
 [FAUST:version] api=<int> plugin=<semver> ready=1 \
     playerpositions=<acc>:<cost> castleinfo=<acc>:<cost> playerinfo=<acc>:<cost> \
     plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
-    allcastles=<acc>:<cost> decaywatch=<acc>:<cost> clans=<acc>:<cost>
+    allcastles=<acc>:<cost> decaywatch=<acc>:<cost> clans=<acc>:<cost> heatmap=<acc>:<cost>
 ```
 
 (Single line — shown wrapped here for readability.)
@@ -66,9 +66,31 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 12):** as of Faust 0.13.0, **every feature ships AdminOnly by default** (Faust is
+> **Status (ApiVersion 17):** as of Faust 0.14.0, **every feature ships AdminOnly by default** (Faust is
 > an admin tool first; admins grant pieces to players per server) — so a fresh handshake shows
-> `…=admin:…` for all tokens to a non-admin. New in 12: the `stats players` roster (§7 below) and a
+> `…=admin:…` for all tokens to a non-admin. New in **17** (§11 world coords, additive/omittable, no new
+> token): every `[FAUST:castle]`/`[FAUST:plot]` row gains optional `posx=`/`posz=` (the territory's
+> **centroid world coords** — where on the map it is, §11a), and `[FAUST:hmhead]` gains optional
+> `mapbounds=` (the full buildable-map cell extent for true-scale heat maps, §11b). Also fixed in 0.15.0:
+> **`clanmembers` now accepts clan names with spaces** (a no-response bug — the name was bound to only the
+> first word). New in **16** (player-position heat map): a new **`heatmap`**
+> feature/token — `.faust api heatmap [<all|name|steamId>]` returns a binned density grid (`[FAUST:hmhead]`
+> header + packed `[FAUST:hmrow]` cells) for per-player and server-wide heat maps. Collection is **opt-in**
+> (`[Faust.Heatmap] Enabled`, sampled on a timer); the read is gated like any feature. New in **15** (the
+> §10 region/roster batch, additive, under
+> the `stats` gate): `[FAUST:nprow]` grows `playmins=`/`castles=` (§10a); `[FAUST:region]` grows `plots=`
+> (the castle fill-% denominator, §10b); and a new **`stats regiondaily`** endpoint (`[FAUST:rdrow]`:
+> per-day per-region castles/plots/players — a forward-accumulating series, §10c). New in **14** (the §9
+> drill-down batch, all additive — no new
+> handshake token, all under the `stats` gate): a **`newplayers roster`** endpoint (`[FAUST:nprow]`: who
+> joined + when + clan), a **`hoursplayers`** sibling line on `stats hours` (`[FAUST:hoursplayers]`:
+> distinct players per UTC hour — the avg-per-player denominator), a **`sessions timeline`** endpoint
+> (`[FAUST:stl]`: individual online intervals), and a **`stats activegrid`** kind (`[FAUST:agrow]`:
+> per-player active-days grid). New in **13** (the §8 tester batch, all additive — no new
+> handshake token): `castleinfo` grows optional `heartlevel`/`floors`/`claimed`/`clan`/`items`; `resources`
+> reports `prisoners=` + `[FAUST:prisoner]` rows; a new **`clanmembers`** endpoint (under the `clans` gate);
+> the `daily` series grows `new=`/`returning=`; and two admin-oversight endpoints **`access`** and
+> **`usage`** (under the `stats` gate). New in 12: the `stats players` roster (§7 below) and a
 > per-player `ratelimit` deny code (§4). The shapes below are **IMPLEMENTED** and live as of Faust 0.12.0 —
 > castleinfo (#2), plots (#4), pinfo (#3, with FaustStore-derived playtime/frequency/peak-hour),
 > positions (#1, carrying `region=`), resources (#6), stats (#8: `playtime` + `concurrency`, plus the
@@ -104,7 +126,8 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `nearest` (territory of the nearest castle heart) | a territory index `<int>`.
 ```
 [FAUST:castle] tindex=<int> owner=<wire_name> steam=<id> region=<wire_name> size=<blocks> \
-    state=<unclaimed|sealed|fueled|decaying> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc>
+    state=<unclaimed|sealed|fueled|decaying> decay=<secondsLeft> online=<0|1> lastonline=<unixUtc> \
+    [posx=<float>] [posz=<float>] [heartlevel=<int>] [floors=<int>] [claimed=<unixUtc>] [clan=<wire_name>] [items=<int>]
 ```
 - `state`: `unclaimed` (no heart), `sealed` (frozen — never decays), `fueled` (has blood
   essence / time remaining), `decaying` (out of fuel, ticking down).
@@ -112,15 +135,30 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
   plot, `owner=_ steam=0 online=0 lastonline=0`.
 - `size`: territory block count (10×10 build blocks) — a proxy for plot size.
 - `lastonline`: Unix UTC seconds (from `User.TimeLastConnected`); `0` = unknown.
+- **`posx`/`posz` (ApiVersion ≥17, §11a) — on EVERY castle row** (`castleinfo`, `castles`, `decay`): the
+  territory's **centroid world coords** (one decimal), the same coordinate space as `positions` `x`/`z` —
+  i.e. *where on the map* the plot is. Omitted only when a territory has no resolvable blocks. (Cheap dict
+  lookup, so unlike the §8a extras these ride on the list rows too.)
+- **§8a extras (ApiVersion ≥13) — single `castleinfo` lookup ONLY** (NOT the `castles`/`decay` lists,
+  which stay cheap). Each token is **OMITTED when Faust can't resolve it**, so Raphael shows each only
+  when present (no sentinel to special-case):
+  - `floors` — number of building storeys (distinct floor heights). `clan` — owning clan's wire-safe
+    name (absent when the owner is solo). `items` — the castle's **grand total item count** only (the
+    single `resources` header `totalitems` number — NOT the per-item breakdown, so no raid intel leaks).
+  - `heartlevel` and `claimed` (heart placement time) are **not currently emitted** — the game exposes
+    no confirmable numeric heart-level field and no reliable placement timestamp; the tokens are reserved
+    and will appear if a source is found. (`floors`/`clan`/`items` are the live ones.)
 - Errors: `badtarget` (token isn't here/nearest/int), `notfound` (no such territory).
 
 ### `plotavailability` (#4) — IMPLEMENTED
 `.faust api plots [page]` — open (heart-less) territories, largest first.
 ```
-[FAUST:plot] tindex=<int> size=<blocks> region=<wire_name>
+[FAUST:plot] tindex=<int> size=<blocks> region=<wire_name> [posx=<float>] [posz=<float>]
 …rows…
 [FAUST:end] cmd=plots page=<cur>/<total> count=<n>
 ```
+- `posx`/`posz` (ApiVersion ≥17, §11a): the territory's **centroid world coords** (same as `[FAUST:castle]`
+  above) — where on the map the open plot is. Omitted when unresolvable.
 
 ### `allcastles` (full server map) — IMPLEMENTED (ApiVersion ≥8)
 `.faust api castles [page]` — **every** territory (claimed AND open), largest first. Admin-default
@@ -174,6 +212,23 @@ then one paged `[FAUST:clan]` row per non-empty clan (members-descending).
 - A clanless server still sends the summary (with zeros) + `[FAUST:end] cmd=clans page=1/1 count=0`.
 - BCH disambiguates the `[FAUST:clan]` rows from the `clansummary` header by tag; paging is standard.
 
+### `clanmembers` (one clan's roster) — IMPLEMENTED (ApiVersion ≥13, §8c)
+`.faust api clanmembers <clanName> [page]` — the member roster of a single clan, paged. Shares the
+**`clans`** feature gate. `<clanName>` matches case-insensitively against the clan's name **and** its
+wire-safe (`_`→space) form, so the `_`-encoded name Raphael shows resolves directly.
+- **Clan names with spaces are supported** (fixed 0.15.0): `clanName` is captured greedily (the whole
+  remainder), so `clanmembers Blood Lords` works — send the raw display name *or* the `_`-encoded form.
+  An optional trailing **page** integer is still honored (`clanmembers Blood Lords 2`). (Earlier builds
+  bound only the first word and rejected the rest before replying — BCH saw a no-response timeout.)
+```
+[FAUST:clanmember] name=<wire_name> online=<0|1> role=<leader|member>
+…rows (leader first, then online, then name)…
+[FAUST:end] cmd=clanmembers page=<cur>/<total> count=<n>
+```
+- No clan matches the name → `[FAUST:err] code=notfound feature=clans`. A matched-but-empty clan still
+  sends `[FAUST:end] cmd=clanmembers page=1/1 count=0`. Cleaner than stuffing a member list onto the
+  `[FAUST:clan]` row (no 509-char line cap to worry about for big clans).
+
 ### `playerinfo` (#3) — IMPLEMENTED
 `.faust api pinfo <steamIdOrName>` — **self always allowed**; querying *others* is gated by the
 `playerinfo` feature access (AdminOnly by default). Name lookups must be unique (exact name wins).
@@ -210,6 +265,38 @@ then one paged `[FAUST:clan]` row per non-empty clan (members-descending).
 - **Rendering is the open problem** (design §8): BCH draws these on its own map overlay, or Faust
   drives server-side MapIcon reveal — decide via spike. The data is ready either way.
 
+### `heatmap` (player-position density) — IMPLEMENTED (ApiVersion ≥16)
+A binned density grid built from periodic position snapshots — both a **per-player** heat map and the
+**aggregated server-wide** one. Faust samples every online player's `(x,z)` on a timer (admin-configurable
+`[Faust.Heatmap] SampleSeconds`, 30–300s), bins each into a `CellSize×CellSize` grid cell, and accumulates
+a per-(player, cell) count. Its own feature gate (`heatmap`, AdminOnly default — PvP-sensitive: it reveals
+where players spend time). **Collection is opt-in** (`[Faust.Heatmap] Enabled`, default off — the only
+collector that runs on a timer); when off, the endpoint still answers but returns an empty grid.
+
+`.faust api heatmap [<all|name|steamId>] [page]` — `all`/`server` (default) = the whole server summed; a
+name/SteamID = that one player. A header line (page 1), then **packed** cell rows (paged):
+```
+[FAUST:hmhead] scope=<server|steamId> cell=<f> samples=<n> cells=<n> bounds=<minCx>:<minCz>:<maxCx>:<maxCz> [mapbounds=<minCx>:<minCz>:<maxCx>:<maxCz>] collecting=<0|1>
+[FAUST:hmrow] data=<cx>:<cz>:<count>,<cx>:<cz>:<count>,...          ; many cells per line, paged
+...rows (densest cells first)...
+[FAUST:end] cmd=heatmap scope=<...> page=<cur>/<total> count=<totalCells>
+```
+- **`cell`** = grid resolution in world units; map a cell back to world space as `worldX ~= cx*cell` (+`cell/2`
+  for the cell centre), `worldZ ~= cz*cell`. **`cx`/`cz` are signed** cell indices (`floor(x/cell)`,
+  `floor(z/cell)`) — the map spans negative coordinates. `count` = times a player was sampled in that cell
+  (intensity). **`samples`** = total samples in this scope (sum of counts) — use it to normalize. `cells` =
+  distinct cells; `bounds` = the cell-index extent of the **occupied** cells. **`mapbounds` (ApiVersion ≥17,
+  §11b, optional)** = the cell-index extent of the **whole buildable map** at the current `cell` size
+  (constant per server) — draw the grid to `mapbounds` so a sparse map reads as a few dots on the real map
+  outline rather than a tiny zoomed board; falls back to `bounds` if absent. **`collecting`** = whether
+  sampling is currently on (so BCH distinguishes "off" from "on but no data yet").
+- **Packed rows** keep a dense map to a handful of lines: each `[FAUST:hmrow] data=` carries many
+  `cx:cz:count` triples (comma-separated) under the 509-char cap (same idea as `activegrid`). Split each row
+  on `,` then `:`. Cells are densest-first, so an early page already gives the hotspots.
+- **Cumulative density** (no time axis in v1) accumulated since install / last reset; resolution is fixed
+  once data exists (changing `CellSize` needs a `.faust admin data wipe heatmap`). Bounded by
+  `[Faust.Heatmap] MaxCells`. An empty/disabled grid still sends the header + `count=0` trailer.
+
 ### `objectscan` (#5)
 Default **Free / client-side** (BCH reads nearby entities itself). Only implement
 a server command if the admin prices it:
@@ -225,18 +312,25 @@ Chest **contents** only for own/clan containers; never enemy (not replicated).
 container's contents in the castle on the target territory (containers + stations connected to the
 heart). A summary header (page 1), then one paged `[FAUST:item]` row per distinct item type.
 ```
-[FAUST:res] tindex=<int> owner=<wire_name> steam=<id> containers=<n> totalitems=<n> distinct=<n>
+[FAUST:res] tindex=<int> owner=<wire_name> steam=<id> containers=<n> totalitems=<n> distinct=<n> prisoners=<n>
 [FAUST:item] guid=<int> qty=<n> name=<wire_name>
-…rows (qty-descending)…
-[FAUST:end] cmd=resources page=<cur>/<total> count=<distinct>
+…item rows (qty-descending)…
+[FAUST:prisoner] name=<wire_name> bloodtype=<wire_name> bloodquality=<int>
+…prisoner rows…
+[FAUST:end] cmd=resources page=<cur>/<total> count=<distinct+prisoners>
 ```
 - `containers` = containers that held ≥1 item; `totalitems` = grand total; `distinct` = item types.
 - An **unclaimed** territory (no heart) → `code=notfound`. An empty (claimed) castle → header with
   zeros + a `count=0` end. `name` is the item's prefab dev-name (BCH may prettify by `guid`).
+- **`prisoners` (ApiVersion ≥13, §8b)** = count of prisoners held in the castle; the header carries the
+  total, and one `[FAUST:prisoner]` row per prisoner is appended **after** the `[FAUST:item]` rows (both
+  page together under `cmd=resources` — disambiguate by tag). `bloodtype` is the prisoner's blood-type
+  prefab dev-name (`-` if none) and `bloodquality` is its quality 0–100 (`-1` if no blood). `count` on the
+  `[FAUST:end]` is the total row count (items + prisoners).
 - This is the powerful raid-intel feature: defaults to **AdminOnly**, and is a natural one to price
   (`CostItemGuid`) or PvP-gate (`Availability=PvPOnly`) via the admin-control axes.
 
-### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`, `hours`, `daily`, `newplayers`, `sessions`)
+### `stats` (#8) — IMPLEMENTED (`playtime`, `concurrency`, `hours`, `daily`, `newplayers`, `sessions`, `weekdays`, `pdaily`, `population`, `recency`, `peak`, `regions`, `players`, `activegrid`, `regiondaily`)
 `.faust api stats <kind> [arg]` — the `<arg>` slot is a **page** (`playtime`/`concurrency`), a
 **player** `<name|steamId>` scope (`hours`/`sessions`), or a **day window** (`daily`/`newplayers`),
 parsed per-kind. All share the one `stats` feature gate. `kills` | `resources` are still planned.
@@ -259,21 +353,29 @@ parsed per-kind. All share the one `stats` feature gate. `kills` | `resources` a
 its own shape so BCH adds a chart per shape and **hides** any shape Faust doesn't emit:
 
 `.faust api stats hours [<name|steamId>]` — accumulated playtime **minutes per UTC hour-of-day**
-(24 buckets), server-wide or for one player. Single line, no trailer:
+(24 buckets), server-wide or for one player. Now **two** single lines, no trailer:
 ```
 [FAUST:hours] scope=<server|steamId> h00=<min> h01=<min> … h23=<min>
+[FAUST:hoursplayers] scope=<server|steamId> p00=<n> p01=<n> … p23=<n>   ; ApiVersion ≥14 (§9b)
 ```
 - Sessions are **sliced at hour boundaries**, so a session spanning 22:30→01:15 feeds hours 22/23/0/1
   — a true "when is the server / this player active" profile, not just a connect-time tally.
+- **`[FAUST:hoursplayers]` (ApiVersion ≥14, §9b)** = **distinct players** active in each UTC hour, the
+  denominator for an **Avg / Total** toggle on the chart: `avg[h] = h[h] / p[h]` (guard `p[h]=0`). Same
+  `scope`, emitted in the same `stats hours` reply right after `[FAUST:hours]`. Older BCH ignores it.
 
 `.faust api stats daily [days=14]` — per-day **DAU** (distinct players online) and **play-minutes**
 for the last N days (clamped 1–90), oldest→newest, un-paged:
 ```
-[FAUST:daily] day=<unixUtcMidnight> dau=<int> minutes=<int>   ; one row per day in the window
+[FAUST:daily] day=<unixUtcMidnight> dau=<int> minutes=<int> new=<int> returning=<int>   ; one row per day
 [FAUST:end] cmd=daily count=<n>
 ```
 - Playtime is sliced at UTC midnight; a player counts toward a day's DAU if any session overlapped it.
   Every day in the window emits a row (zero-activity days included), so `count` = the day span.
+- **`new`/`returning` (ApiVersion ≥13, §8d):** `new` = of that day's DAU, players whose **first-ever
+  recorded session** is that same day; `returning` = `dau - new`. Lets Raphael draw a stacked
+  new-vs-returning chart. Same "first seen by Faust" caveat as `newplayers` (bounded by retention; right
+  after install, returning veterans register as `new`).
 
 `.faust api stats newplayers [days=30]` — per-day count of players whose **first recorded session**
 falls on that day (growth/retention), last N days (clamped 1–90), oldest→newest, un-paged:
@@ -336,12 +438,29 @@ oldest→newest, un-paged:
 
 `.faust api stats regions [page]` — population + castle distribution by map region (paged):
 ```
-[FAUST:region] name=<wire_name> players=<n> castles=<n>
+[FAUST:region] name=<wire_name> players=<n> castles=<n> plots=<n>
 …rows (castles-descending)…
 [FAUST:end] cmd=regions page=<cur>/<total> count=<n>
 ```
 - `players` = **online** players currently in that region (offline players have no position); `castles` =
   claimed castles in it. `name=-` is the open-world / no-region bucket (the canonical region sentinel).
+- **`plots` (ApiVersion ≥15, §10b)** = total **buildable** territories in the region (claimed + open — the
+  same universe `castles` walks), the fill-% denominator: BCH charts `castles / plots` (%) per region.
+
+`.faust api stats regiondaily [days=30] [page]` (ApiVersion ≥15, §10c) — the **by-region view over time**:
+per-day per-region castle/plot/player snapshots, oldest day first, paged:
+```
+[FAUST:rdrow] day=<unixUtcMidnight> region=<wire_name> castles=<n> plots=<n> players=<n>
+…rows (one per region per sampled day; oldest day first)…
+[FAUST:end] cmd=regiondaily days=<n> page=<cur>/<total> count=<n>
+```
+- `castles`/`plots` per region per day drive a per-day **fill-%** line/bar and a by-date table; `players`
+  is the online count in that region at sample time. `region=-` is the open-world bucket.
+- **Forward-accumulating + sparse.** Faust keeps **no historical castle data** (the map is read live), so
+  this series is sampled **once per UTC day** (on that day's first connect/disconnect) and accumulates from
+  install — there is no pre-install history. **Only sampled days appear** (a day with zero player activity
+  has no row, like `pdaily` omitting zero days), and it's bounded by `SessionRetentionDays`. Treat a thin
+  early series as "since Faust install," same caveat as `daily`/`newplayers`.
 
 `.faust api stats players [page]` (ApiVersion ≥12) — the **per-player activity roster** (§7): one row per
 tracked player, the data behind the aggregates, playtime-descending, paged:
@@ -386,6 +505,84 @@ tracked player, the data behind the aggregates, playtime-descending, paged:
   are server-side admin actions, nothing for BCH/Raphael to implement, just to be aware of when labeling
   charts (e.g. "since Faust install / last reset," not "this world").
 
+### `access` / `usage` (Faust oversight) — IMPLEMENTED (ApiVersion ≥13, §8e)
+Two admin-oversight endpoints — "who can use Faust, and how it's being used." Both share the **`stats`**
+feature gate (admin-default); both are pure server-side accounting Faust already keeps for its cost/
+cooldown gates, so there is **no client→server usage reporting** (no perf cost on Raphael's side).
+
+`.faust api access [page]` — per-feature access snapshot (one row per feature), paged:
+```
+[FAUST:access] feature=<name> scope=<off|admin|players> cost=<itemGuid>x<qty> granted=<n> unlocked=<n>
+…rows…
+[FAUST:end] cmd=access page=<cur>/<total> count=<n>
+```
+- `scope` is the feature's **configured** access (server-wide picture — NOT resolved per-requester like
+  the handshake). `cost` = `0` (free) or `<itemGuid>x<qty>`. `granted` = players with an explicit admin
+  grant for the feature; `unlocked` = tracked players who satisfy its unlock criterion, or **`-1`** when
+  the feature has **no** unlock criterion (everyone qualifies — "N/A").
+
+`.faust api usage [days=7] [page]` — per-feature usage over the last N UTC days (clamped 1–365), paged,
+uses-descending; features with no activity in the window are omitted:
+```
+[FAUST:usagerow] feature=<name> uses=<n> payers=<n> itemspent=<int> item=<itemGuid> cooldownhits=<n>
+…rows…
+[FAUST:end] cmd=usage page=<cur>/<total> count=<n>
+```
+- `uses` = successful queries; `payers` = distinct players who paid an item cost; `itemspent` = total
+  quantity of the cost item consumed; `item` = the feature's **currently-configured** cost item GUID
+  (`0` if free); `cooldownhits` = denials that hit the per-feature cooldown/window. Tallied in per-(feature,
+  UTC-day) buckets persisted server-side (`feature_usage_stats.json`), bounded by `SessionRetentionDays`.
+  An empty window still sends `[FAUST:end] cmd=usage page=1/1 count=0`.
+
+### §9 drill-down detail — IMPLEMENTED (ApiVersion ≥14)
+The per-player / per-event detail behind the Server-Stats charts — identities and timestamps the
+bucket-count endpoints above can't carry. All four share the **`stats`** feature gate (admin-default;
+PvP-sensitive — they reveal who plays when), are additive, and degrade gracefully (older BCH just won't
+query them). `[FAUST:hoursplayers]` (§9b) is documented with `stats hours` above.
+
+`.faust api newplayers roster [days=30] [page]` (§9a) — the **names behind the new-vs-returning counts**:
+one row per player whose **first-ever recorded session** falls in the last N days (clamped 1–90),
+newest-join-first, paged:
+```
+[FAUST:nprow] steam=<id> name=<wire_name> firstseen=<unixUtc> clan=<wire_name|-> playmins=<int> castles=<int>
+…rows (newest join first)…
+[FAUST:end] cmd=newplayersroster days=<n> page=<cur>/<total> count=<n>
+```
+- `firstseen` = first-ever session (Unix UTC seconds) — the same "first seen by Faust" definition the
+  `new` count uses (bounded by `SessionRetentionDays`; see the caveats above). `clan` = the player's
+  current clan (`Wire.Safe`), or `-` if solo. The first arg is the literal sub-command `roster` (anything
+  else → `[FAUST:err] code=badtarget feature=stats`). An empty window still sends a `count=0` trailer.
+- **`playmins`/`castles` (ApiVersion ≥15, §10a):** `playmins` = the player's lifetime total play-minutes
+  (same as `stats players`); `castles` = castle hearts they currently own (`0` if none). Appended to the
+  row — BCH shows Playtime + Castles columns when present and degrades to name·joined·clan when absent.
+
+`.faust api sessions timeline <all|name|steamId> [days=14] [page]` (§9c) — **individual online intervals**
+for a per-player activity timeline (Gantt): one row per session that **overlaps** the last N days
+(clamped 1–90), start-ascending, paged:
+```
+[FAUST:stl] steam=<id> name=<wire_name> start=<unixUtc> end=<unixUtc>
+…rows (start-ascending)…
+[FAUST:end] cmd=sessionstimeline days=<n> page=<cur>/<total> count=<n>
+```
+- `start`/`end` are the **real** connect→disconnect timestamps (an open session ends at "now"); BCH clips
+  them to its render window. `all` = every player's sessions (paged); `<name|steamId>` = one player
+  (unresolvable → `[FAUST:err] code=notfound feature=stats`). The first arg is the literal sub-command
+  `timeline` (else `badtarget`). Window-bounded server-side; page for busy servers.
+
+`.faust api stats activegrid [days=30] [page]` (§9d) — **per-player active-days grid**: one row per player
+with any activity in the last N days (clamped 1–90), most-active-first, paged:
+```
+[FAUST:agrow] steam=<id> name=<wire_name> active=<int> days=<dayNum:minutes,dayNum:minutes,…>
+…rows (active-days-descending)…
+[FAUST:end] cmd=activegrid days=<n> page=<cur>/<total> count=<n>
+```
+- `active` = count of days the player was online in the window. `days` = compact CSV of `dayNum:minutes`
+  for each **non-zero** day (zero-days omitted, recent-first ordering). **`dayNum` is the UTC day NUMBER —
+  days since the Unix epoch (`unixMidnight / 86400`)** — kept compact to respect the 509-char wire cap;
+  multiply by `86400` for the midnight timestamp. If a row's CSV would overflow the line budget the
+  **oldest** days are dropped, so a row is **truncated** when its CSV entry-count is less than `active`
+  (Faust also logs a warning server-side). Generalises `stats pdaily` (one player) to all players at once.
+
 ---
 
 ## 4. Paging & errors (shared conventions)
@@ -400,9 +597,10 @@ tracked player, the data behind the aggregates, playtime-descending, paged:
 - **Wire-safe labels** — no spaces in token values; use `_`→space on display
   (the Uriel convention). Avoid `=`, `;`, `:` inside values.
 - **`region=` has ONE canonical "no region" sentinel: `-`.** Every region-bearing line
-  (`positions`, `castleinfo`, `castles`, `decay`, `plots`) emits `region=-` for the open world /
-  out-of-bounds / unmapped (and otherwise the wire-safe region name). As of 0.10.0 the literal
-  `None`/`Unknown` no longer leak through — test only for `-` (or empty) as "no region."
+  (`positions`, `castleinfo`, `castles`, `decay`, `plots`, plus the `stats regions` / `regiondaily`
+  region buckets) emits `-` for the open world / out-of-bounds / unmapped (and otherwise the wire-safe
+  region name). As of 0.10.0 the literal `None`/`Unknown` no longer leak through — test only for `-`
+  (or empty) as "no region."
 - **Errors:** `[FAUST:err] code=<code> [feature=<f>] [item=<guid>] [qty=<n>] [secs=<n>]`
   with `code` ∈ `disabled | noaccess | cooldown | cost | notready | notfound | badtarget |
   blocked | schedule | pvp | window | locked | notnear | ratelimit`. BCH surfaces a friendly message and the relevant detail:
@@ -433,8 +631,18 @@ tracked player, the data behind the aggregates, playtime-descending, paged:
   `[FAUST:err] code=cost|cooldown|noaccess`.
 - #5: read nearby objects **client-side** (reuse `SharedContainerDetector`
   pattern) when Free; call `.faust api objects` only if the server prices it.
-- #9: a small chart widget in the UniverseLib framework consuming `[FAUST:stat]`
-  time-series.
+- #8/#9: chart widgets in the UniverseLib framework consuming the Server-Stats series —
+  `playtime`/`concurrency`, the activity-analytics (`hours` + `hoursplayers`, `daily`,
+  `newplayers`, `sessions`, `weekdays`, `pdaily`), population rollups, the `players`
+  roster, and the §9 drill-downs (`newplayers roster`, `sessions timeline` Gantt,
+  `activegrid`). Consumed in Raphael v0.50.0.
+- §10 (region/roster): pivot the By-region chart to **fill %** (`castles / plots`) and
+  add the `regiondaily` by-date per-region table + per-region trend; the `newplayers roster`
+  auto-gains Playtime + Castles columns from the new `nprow` tokens. Gate on `api ≥ 15`.
+- **Heat map:** a player-position **heat-map viz** consuming `.faust api heatmap`
+  (`[FAUST:hmhead]` header + packed `[FAUST:hmrow]` density cells) — per-player and
+  server-wide, mapped from cell indices to world space via the header's `cell` size.
+  Gate on `api ≥ 16` / the `heatmap` handshake token. (Raphael-side, in progress.)
 
 ---
 

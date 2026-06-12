@@ -39,6 +39,93 @@ internal sealed class ClanService
         public List<ClanInfo> ClanList { get; init; } // members-descending
     }
 
+    public readonly struct ClanMember
+    {
+        public string Name { get; init; }
+        public bool Online { get; init; }
+        public bool Leader { get; init; }
+    }
+
+    /// <summary>
+    /// §8c: the member roster of a single clan, matched by name (case-insensitive, against both the raw
+    /// <see cref="ClanTeam.Name"/> and its <see cref="Wire.Safe"/> form so a `_`-encoded name from Raphael
+    /// resolves). Returns null when no clan matches; an empty list only for a matched-but-empty clan.
+    /// Leader-first, then online, then name.
+    /// </summary>
+    public List<ClanMember> GetClanMembers(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        List<ClanMember> found = null;
+        var clans = Query.GetEntitiesByComponentType<ClanTeam>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < clans.Length; i++)
+            {
+                var clan = clans[i];
+                if (!Core.EntityManager.HasComponent<ClanMemberStatus>(clan)) continue;
+                var clanName = clan.Read<ClanTeam>().Name.ToString();
+                if (!string.Equals(clanName, name, System.StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(Wire.Safe(clanName), name, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var members = Core.EntityManager.GetBuffer<ClanMemberStatus>(clan);
+                var userBuf = Core.EntityManager.HasComponent<SyncToUserBuffer>(clan)
+                    ? Core.EntityManager.GetBuffer<SyncToUserBuffer>(clan) : default;
+
+                var list = new List<ClanMember>(members.Length);
+                for (int m = 0; m < members.Length; m++)
+                {
+                    bool leader = members[m].ClanRole == ClanRoleEnum.Leader;
+                    string mName = null; bool online = false;
+                    if (userBuf.IsCreated && m < userBuf.Length
+                        && userBuf[m].UserEntity.TryGetComponent<User>(out var mu))
+                    {
+                        mName = mu.CharacterName.ToString();
+                        online = mu.IsConnected;
+                    }
+                    list.Add(new ClanMember { Name = mName, Online = online, Leader = leader });
+                }
+                list.Sort((a, b) =>
+                {
+                    if (a.Leader != b.Leader) return a.Leader ? -1 : 1;
+                    if (a.Online != b.Online) return a.Online ? -1 : 1;
+                    return string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                });
+                found = list;
+                break;
+            }
+        }
+        finally { clans.Dispose(); }
+        return found;
+    }
+
+    /// <summary>
+    /// §9a: steam-id → owning clan name, over every clan's member buffer (offline members included, since the
+    /// ClanTeam entities and their <see cref="SyncToUserBuffer"/> persist for offline users). Used to tag the
+    /// new-players roster with each player's current clan; absent from the map ⇒ solo / no clan.
+    /// </summary>
+    public Dictionary<ulong, string> GetPlayerClanNames()
+    {
+        var map = new Dictionary<ulong, string>();
+        var clans = Query.GetEntitiesByComponentType<ClanTeam>(includeDisabled: true);
+        try
+        {
+            for (int i = 0; i < clans.Length; i++)
+            {
+                var clan = clans[i];
+                if (!Core.EntityManager.HasComponent<ClanMemberStatus>(clan)
+                    || !Core.EntityManager.HasComponent<SyncToUserBuffer>(clan)) continue;
+                string name = clan.Read<ClanTeam>().Name.ToString();
+                var userBuf = Core.EntityManager.GetBuffer<SyncToUserBuffer>(clan);
+                for (int m = 0; m < userBuf.Length; m++)
+                    if (userBuf[m].UserEntity.TryGetComponent<User>(out var mu))
+                        map[mu.PlatformId] = name;
+            }
+        }
+        finally { clans.Dispose(); }
+        return map;
+    }
+
     public Composition GetComposition()
     {
         // ---- per-player split (authoritative count over every known user, online + offline) ----

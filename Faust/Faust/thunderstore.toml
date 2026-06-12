@@ -4,8 +4,8 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "kdpen"
 name = "Faust"
-versionNumber = "0.13.0"
-description = "Pre-1.0 testing. Server-side investigation layer: admin intel on players, castles, plots & server activity, gated per-feature. Built to run with its companion client Raphael, Lord of Wisdom. Server-side only."
+versionNumber = "0.15.0"
+description = "Pre-1.0 testing. A server-side information layer for V Rising: the authoritative view of players, castles, plots & activity. An admin moderation console you can also open up as PvP intel or PvE community features. Pairs with Raphael."
 websiteUrl = "https://github.com/KDavidP1987/Faust-Lord-of-Investigation"
 containsNsfwContent = false
 

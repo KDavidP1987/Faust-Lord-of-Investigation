@@ -30,6 +30,7 @@ internal static class OnUserConnected_Patch
             if (user.CharacterName.IsEmpty) return;
             Core.Store.OnConnect(user.PlatformId, user.CharacterName.ToString());
             Core.MapMarkers?.OnPlayerConnect(user.PlatformId); // experimental; no-op unless active
+            RegionSampler.SampleRegionsOncePerDay();
         }
         catch (Exception ex)
         {
@@ -53,10 +54,33 @@ internal static class OnUserDisconnected_Patch
             if (user.CharacterName.IsEmpty) return;
             Core.Store.OnDisconnect(user.PlatformId);
             Core.MapMarkers?.OnPlayerDisconnect(user.PlatformId);
+            RegionSampler.SampleRegionsOncePerDay();
         }
         catch (Exception ex)
         {
             Core.Log.LogError($"[FAUST STORE] OnUserDisconnected failed: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// §10c region time-series sampler. Faust keeps no historical castle data (the map is read live), so the
+/// per-day per-region snapshot must be accumulated forward. We piggyback on connect/disconnect (the only
+/// low-frequency events that already touch the store) and the store throttles to one ECS walk per UTC day.
+/// Guarded by <c>Core.IsReady</c> — the ECS read is unsafe before game-data init.
+/// </summary>
+internal static class RegionSampler
+{
+    public static void SampleRegionsOncePerDay()
+    {
+        try
+        {
+            if (!Core.IsReady || Core.Store is null || !Core.Store.ShouldSampleRegions()) return;
+            Core.Store.RecordRegionSnapshot(Services.RegionStats.Gather());
+        }
+        catch (Exception ex)
+        {
+            Core.Log.LogError($"[FAUST STORE] region sample failed: {ex.Message}");
         }
     }
 }

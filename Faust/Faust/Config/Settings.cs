@@ -111,6 +111,7 @@ internal static class Settings
     public const string AllCastles = "allcastles";           // full server castle map (every territory)
     public const string DecayWatch = "decaywatch";           // claimed castles sorted by soonest-to-decay
     public const string Clans = "clans";                     // clan composition: clanned vs independent + rosters
+    public const string Heatmap = "heatmap";                 // player-position density grid (per-player + server)
 
     public static ConfigEntry<bool> Enabled { get; private set; }
     public static ConfigEntry<bool> AuditQueries { get; private set; }
@@ -137,6 +138,13 @@ internal static class Settings
     public static ConfigEntry<int> MaxConcurrencyPoints { get; private set; }
     public static ConfigEntry<int> SessionRetentionDays { get; private set; }
     public static ConfigEntry<string> DataNamespace { get; private set; }
+
+    // ---- Player-position heat map (the one PERIODIC collector; opt-in). Snapshots online players'
+    //      coordinates on a timer, binned into a grid, for per-player + server-wide density maps. ----
+    public static ConfigEntry<bool> HeatmapEnabled { get; private set; }
+    public static ConfigEntry<int> HeatmapSampleSeconds { get; private set; }
+    public static ConfigEntry<float> HeatmapCellSize { get; private set; }
+    public static ConfigEntry<int> HeatmapMaxCells { get; private set; }
 
     static readonly Dictionary<string, FeatureConfig> _features = new();
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
@@ -226,6 +234,31 @@ internal static class Settings
             "since the same players return). Set e.g. 30/60/90 to bound long-term growth on a very busy or " +
             "long-lived server and keep playtime/frequency windows recent. For a one-off cleanup without " +
             "changing this, use '.faust admin data clear <days>'.");
+        // Player-position heat map. The ONLY collector that does work on idle ticks (a timed snapshot of
+        // online positions), so it's OFF by default — admins opt in. Binned into a grid so coordinates
+        // aggregate into density; both per-player and server-wide maps come from the same data.
+        HeatmapEnabled = config.Bind(
+            "Faust.Heatmap", "Enabled", false,
+            "Master switch for player-position heat-map COLLECTION. When true, Faust snapshots every online " +
+            "player's map coordinates every SampleSeconds and bins them into a grid (for per-player and " +
+            "server-wide density maps, read via '.faust api heatmap'). OFF by default — it's the only " +
+            "collector that runs on a timer (others are read-on-demand or event-driven), so you opt in. " +
+            "Reset the collected data any time with '.faust admin data wipe heatmap'.");
+        HeatmapSampleSeconds = config.Bind(
+            "Faust.Heatmap", "SampleSeconds", 60,
+            "How often (seconds) to snapshot online player positions for the heat map. Clamped to 30–300 " +
+            "(every 30s to every 5 min). Lower = finer time resolution but more samples/disk; higher = lighter.");
+        HeatmapCellSize = config.Bind(
+            "Faust.Heatmap", "CellSize", 25f,
+            "Heat-map grid resolution in world units — positions are binned into CellSize×CellSize cells " +
+            "(smaller = sharper/heavier, larger = coarser/lighter). NOTE: the resolution is fixed once data " +
+            "exists; to change it, wipe the heat map first ('.faust admin data wipe heatmap'), or old and new " +
+            "cells would mix resolutions.");
+        HeatmapMaxCells = config.Bind(
+            "Faust.Heatmap", "MaxCells", 250000,
+            "Hard cap on distinct (player, cell) entries stored (bounds memory + heatmap.json size). Once " +
+            "reached, existing cells keep counting but no new cells are added. 0 = unlimited (not advised).");
+
         DataNamespace = config.Bind(
             "Faust.Collection", "DataNamespace", "",
             "Optional label that scopes Faust's stored data to a subfolder (BepInEx/config/Faust/<name>/). " +
@@ -248,6 +281,7 @@ internal static class Settings
         Bind(config, AllCastles, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, DecayWatch, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Clans, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
+        Bind(config, Heatmap, AccessLevel.AdminOnly, DeliveryMode.ServerMediated); // position density (PvP-sensitive)
     }
 
     static void Bind(ConfigFile config, string key, AccessLevel defaultAccess, DeliveryMode defaultDelivery)

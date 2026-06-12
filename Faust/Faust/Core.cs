@@ -1,7 +1,11 @@
+using System.Collections;
 using BepInEx.Logging;
+using BepInEx.Unity.IL2CPP.Utils.Collections;
 using ProjectM;
+using ProjectM.Physics;
 using ProjectM.Scripting;
 using Unity.Entities;
+using UnityEngine;
 using Faust.Services;
 
 namespace Faust;
@@ -32,7 +36,9 @@ internal static class Core
     // ---- Persistence; created at Plugin.Load (no ECS dependency) so it captures connect events
     //      that can land before game-data init completes, and so admin overrides apply immediately. ----
     public static FaustStore Store { get; private set; }
+    public static HeatmapStore Heatmap { get; private set; }
     public static UsageService Usage { get; private set; }
+    public static UsageStatsService UsageStats { get; private set; }
     public static FeatureControlService Control { get; private set; }
     public static UnlockService Unlock { get; private set; }
 
@@ -44,8 +50,12 @@ internal static class Core
     {
         Store = new FaustStore();
         Store.Load();
+        Heatmap = new HeatmapStore();
+        Heatmap.Load();
         Usage = new UsageService();
         Usage.Load();
+        UsageStats = new UsageStatsService();
+        UsageStats.Load();
         Control = new FeatureControlService();
         Control.Load();
         Unlock = new UnlockService();
@@ -95,6 +105,11 @@ internal static class Core
 
             IsReady = true;
             Log.LogInfo($"Faust initialized via {trigger} (attempt #{_initAttempts}). Prefab map has {prefabSystem.SpawnableNameToPrefabGuidDictionary.Count} entries.");
+
+            // Start the one periodic collector (the position heat map). Coroutine-driven, not ECS-tick-
+            // driven: the server's Unity loop ticks coroutines every frame, so a WaitForSeconds loop is a
+            // reliable timer (the proven Bloodcraft pattern). No-op work inside until heat-map is enabled.
+            HeatmapSampler.Start();
         }
         catch (System.Exception ex)
         {
@@ -114,4 +129,27 @@ internal static class Core
         }
         return null;
     }
+
+    // ---- Coroutine host: a persistent GameObject whose MonoBehaviour drives Unity coroutines on the
+    //      server's main thread (the reliable way to run periodic work — V Rising has no per-frame ECS
+    //      tick we can safely borrow). Reuses ProjectM's IgnorePhysicsDebugSystem so we don't have to
+    //      register a custom Il2Cpp type. (Pattern from Bloodcraft.) ----
+    static MonoBehaviour _monoBehaviour;
+
+    static MonoBehaviour MonoBehaviour
+    {
+        get
+        {
+            if (_monoBehaviour == null)
+            {
+                _monoBehaviour = new GameObject("Faust").AddComponent<IgnorePhysicsDebugSystem>();
+                UnityEngine.Object.DontDestroyOnLoad(_monoBehaviour.gameObject);
+            }
+            return _monoBehaviour;
+        }
+    }
+
+    /// <summary>Run a managed coroutine on the server's main thread (wrapped for Il2Cpp).</summary>
+    public static Coroutine StartCoroutine(IEnumerator routine) =>
+        MonoBehaviour.StartCoroutine(routine.WrapToIl2Cpp());
 }

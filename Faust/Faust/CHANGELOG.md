@@ -3,6 +3,57 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.15.0 (2026-06-11)
+
+Tester-feedback batch — the detail tables beneath the activity charts (who, and when):
+
+- **New-players roster.** `.faust api newplayers roster` lists **who** joined recently, when, and their
+  clan — the names behind the new-vs-returning chart.
+- **Average-per-player hours.** The hour-of-day chart now also reports how many distinct players were on
+  in each hour, so a client can show **average minutes per player** as well as the total.
+- **Session timeline.** `.faust api sessions timeline <all|player>` returns each player's individual
+  online sessions (start/end) for a per-player activity timeline.
+- **Active-days grid.** `.faust api stats activegrid` shows, for every player, which days they played in
+  the window — the all-players version of the per-player daily trend.
+- **Roster extras.** The new-players roster now also shows each player's **total playtime** and **how many
+  castles** they own.
+- **Region "fill %".** The by-region view now reports each region's **total buildable plots**, so a client
+  can show how *full* each region is (claimed ÷ buildable), not just a raw castle count.
+- **Regions over time.** New `.faust api stats regiondaily` tracks castles/plots/players **per region per
+  day**, so building popularity can be charted as a trend. (Faust starts collecting this from install — it
+  has no back-history of the castle map — and samples once a day.)
+- **NEW: player-position heat map.** `.faust api heatmap [all|player]` returns a density grid of where
+  players spend time — **per player or server-wide** — ready for Raphael to draw as a heat map. Turn it on
+  with `[Faust.Heatmap] Enabled=true` (off by default); it snapshots positions every 30s–5min (your choice),
+  bins them into a grid, and you can reset it any time with `.faust admin data wipe heatmap`.
+- **Castle/plot map coordinates.** Castle and plot listings now include each plot's **map location** (X,Z) —
+  so the castle/decay/all-plots tables can show *where* a plot is, not just its owner.
+- **Sharper heat maps.** The heat map now reports the **full map bounds**, so it draws at true map scale even
+  when only a little data has been collected.
+- **Fixed: clan members with spaces.** Looking up a clan whose name has a space (e.g. "Blood Lords") no longer
+  fails with "server didn't respond" — multi-word clan names now resolve.
+- The §9/§10/§11 stats additions are under the existing **stats** gate (admin-default); the heat map has its own
+  **heatmap** gate. All additive — older clients simply don't query them.
+- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**.
+  Feedback and feature requests at **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) shape 1.0.
+
+## 0.14.0 (2026-06-11)
+
+Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin oversight:
+
+- **More Castle Info.** `castleinfo` now also shows the castle's **floors** (storeys), the **owning clan**,
+  and a **grand-total item count** (the single number — not a per-item raid list).
+- **Prisoners in Castle Resources.** `resources` now reports how many prisoners a castle holds, with each
+  prisoner's name and blood type/quality.
+- **Clan rosters.** New `.faust api clanmembers <clan>` lists a clan's members (who's online, who leads).
+- **New-vs-returning activity.** The daily activity series now splits each day into **new** vs
+  **returning** players for a clearer growth picture.
+- **Faust oversight for admins.** New `.faust api access` (who can use each feature) and
+  `.faust api usage` (how often each feature is used and what it costs players) — pure server-side
+  accounting, surfaced in `.faust admin data status` and resettable via `.faust admin data wipe usage`.
+- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**.
+  Feedback and feature requests at **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) shape 1.0.
+
 ## 0.13.0 (2026-06-10)
 
 - **All features now default to admin-only.** Faust is an admin tool first — admins choose what (if

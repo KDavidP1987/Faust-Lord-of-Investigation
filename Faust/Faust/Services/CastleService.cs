@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 using ProjectM;
 using ProjectM.CastleBuilding;
+using ProjectM.Gameplay.Systems;
 using ProjectM.Network;
 using ProjectM.Terrain;
 using Stunlock.Core;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Physics;
@@ -37,6 +39,13 @@ internal sealed class CastleService
         public int SizeBlocks { get; init; }
         public PlotState State { get; init; }
         public long DecaySeconds { get; init; }       // seconds of fuel left; -1 = never decays
+
+        // ---- §8a Castle-Info extras (populated only for the single castleinfo lookup; -1/null = absent) ----
+        public int HeartLevel { get; init; }   // -1 = not resolvable (no confirmable level field)
+        public int Floors { get; init; }        // distinct storey levels among the castle's floors; -1 = absent
+        public long ClaimedUnix { get; init; }  // heart placement time; -1 = not available in exposed ECS
+        public string ClanName { get; init; }   // owning clan name; null/empty = solo / none
+        public long TotalItems { get; init; }   // grand total item count (the resources header total); -1 = absent
     }
 
     /// <summary>Summed contents of every container in a castle — feature #6 (PvP raid intel).</summary>
@@ -48,18 +57,31 @@ internal sealed class CastleService
         public int Containers { get; init; }   // containers that held at least one item
         public long TotalItems { get; init; }   // grand total item count
         public List<(int guid, long qty, string name)> Items { get; init; } // distinct, qty-descending
+        public int Prisoners { get; init; }     // §8b: prisoners held in the castle
+        public List<(string name, string bloodType, int bloodQuality)> PrisonerList { get; init; } // §8b rows
     }
 
     // Lazily-built block-coord -> territory-index map (CastleTerritoryService pattern).
     Dictionary<int2, int> _blockToTerritory;
     // Lazily-built territory-index -> region name (the map's region layout never changes at runtime).
     Dictionary<int, string> _territoryRegion;
+    // §11a: territory-index -> centroid world position (mean of its block coords, KC's transform).
+    Dictionary<int, float2> _territoryCenters;
+    // §11b: world bounds of the whole buildable map (min/max over every territory block).
+    float2 _mapWorldMin, _mapWorldMax;
+    bool _mapBoundsValid;
+
+    // Block-coordinate -> world transform (KindredCommands' TerritoryLocationService): a 10-unit grid
+    // centred on the map (offset 6400, halved). Each axis maps independently; .y is the world Z axis.
+    static float BlockToWorld(float block) => (10f * block - 6400f) / 2f;
 
     void EnsureBlockMap()
     {
         if (_blockToTerritory != null) return;
         _blockToTerritory = new Dictionary<int2, int>();
         _territoryRegion = new Dictionary<int, string>();
+        _territoryCenters = new Dictionary<int, float2>();
+        int2 gmin = new(int.MaxValue, int.MaxValue), gmax = new(int.MinValue, int.MinValue);
         var territories = Query.GetEntitiesByComponentType<CastleTerritory>(includeDisabled: true);
         try
         {
@@ -71,11 +93,29 @@ internal sealed class CastleService
                 if (territories[i].TryGetComponent<TerritoryWorldRegion>(out var twr) && twr.Region != WorldRegionType.None)
                     _territoryRegion[idx] = RegionName(twr.Region);
                 var blocks = Core.EntityManager.GetBuffer<CastleTerritoryBlocks>(territories[i]);
+                long sumX = 0, sumZ = 0;
                 for (int b = 0; b < blocks.Length; b++)
-                    _blockToTerritory[blocks[b].BlockCoordinate] = idx;
+                {
+                    var bc = blocks[b].BlockCoordinate;
+                    _blockToTerritory[bc] = idx;
+                    sumX += bc.x; sumZ += bc.y;
+                    if (bc.x < gmin.x) gmin.x = bc.x; if (bc.x > gmax.x) gmax.x = bc.x;
+                    if (bc.y < gmin.y) gmin.y = bc.y; if (bc.y > gmax.y) gmax.y = bc.y;
+                }
+                if (blocks.Length > 0)
+                    _territoryCenters[idx] = new float2(
+                        BlockToWorld((float)sumX / blocks.Length),
+                        BlockToWorld((float)sumZ / blocks.Length));
             }
         }
         finally { territories.Dispose(); }
+
+        if (gmax.x >= gmin.x)
+        {
+            _mapWorldMin = new float2(BlockToWorld(gmin.x), BlockToWorld(gmin.y));
+            _mapWorldMax = new float2(BlockToWorld(gmax.x), BlockToWorld(gmax.y));
+            _mapBoundsValid = true;
+        }
     }
 
     /// <summary>Region name of a territory index, or null for the open world / no region (-1).</summary>
@@ -84,6 +124,25 @@ internal sealed class CastleService
         if (territoryIndex < 0) return null;
         EnsureBlockMap();
         return _territoryRegion.TryGetValue(territoryIndex, out var r) ? r : null;
+    }
+
+    /// <summary>§11a: a territory's centroid world coords (x, z), or false when unresolvable (no blocks).</summary>
+    public bool TryGetTerritoryCenter(int territoryIndex, out float x, out float z)
+    {
+        x = 0f; z = 0f;
+        if (territoryIndex < 0) return false;
+        EnsureBlockMap();
+        if (!_territoryCenters.TryGetValue(territoryIndex, out var c)) return false;
+        x = c.x; z = c.y;
+        return true;
+    }
+
+    /// <summary>§11b: world bounds of the whole buildable map (min/max over all territory blocks).</summary>
+    public bool TryGetMapWorldBounds(out float minX, out float minZ, out float maxX, out float maxZ)
+    {
+        EnsureBlockMap();
+        minX = _mapWorldMin.x; minZ = _mapWorldMin.y; maxX = _mapWorldMax.x; maxZ = _mapWorldMax.y;
+        return _mapBoundsValid;
     }
 
     // ---- World-region-by-position (the map's named regions, NOT castle territories) ----
@@ -234,8 +293,11 @@ internal sealed class CastleService
         return best;
     }
 
-    /// <summary>Full info for a single territory index. HasHeart=false means it isn't resolvable.</summary>
-    public bool TryGetTerritory(int territoryIndex, out TerritoryInfo info)
+    /// <summary>Full info for a single territory index. HasHeart=false means it isn't resolvable.
+    /// <paramref name="extras"/> = compute the §8a Castle-Info extras (heart level / floors / clan /
+    /// item-total) — a heart-connection scan, so only the one-at-a-time castleinfo lookup asks for it;
+    /// the full-map/decay lists leave it off to stay cheap.</summary>
+    public bool TryGetTerritory(int territoryIndex, out TerritoryInfo info, bool extras = false)
     {
         info = default;
         if (territoryIndex < 0) return false;
@@ -247,7 +309,7 @@ internal sealed class CastleService
             {
                 var ct = territories[i].Read<CastleTerritory>();
                 if (ct.CastleTerritoryIndex != territoryIndex) continue;
-                info = BuildInfo(territories[i], ct);
+                info = BuildInfo(territories[i], ct, extras);
                 return true;
             }
         }
@@ -383,6 +445,8 @@ internal sealed class CastleService
             items.Add((kvp.Key, kvp.Value, new PrefabGUID(kvp.Key).GetPrefabName()));
         items.Sort((a, b) => b.qty.CompareTo(a.qty));
 
+        var prisoners = CollectPrisoners(territoryIndex);
+
         summary = new ResourceSummary
         {
             TerritoryIndex = territoryIndex,
@@ -391,11 +455,55 @@ internal sealed class CastleService
             Containers = containers,
             TotalItems = totalItems,
             Items = items,
+            Prisoners = prisoners.Count,
+            PrisonerList = prisoners,
         };
         return true;
     }
 
-    TerritoryInfo BuildInfo(Entity territoryEntity, CastleTerritory ct)
+    /// <summary>
+    /// §8b: prisoners held in the castle on a territory. Prisoners are units carrying the game's
+    /// <see cref="ImprisonedBuff"/> (a buff entity targeting the captured unit); we resolve each buff's
+    /// target, attribute it by the unit's territory, and read its name + blood. Fully guarded — any
+    /// resolution failure yields fewer/sentineled rows, never a throw (these IL2CPP reads are validated
+    /// in-game). Blood fields sentinel to "-"/-1 when a unit carries no <see cref="Blood"/>.
+    /// </summary>
+    List<(string name, string bloodType, int bloodQuality)> CollectPrisoners(int territoryIndex)
+    {
+        var result = new List<(string, string, int)>();
+        NativeArray<Entity> buffs = default;
+        try
+        {
+            buffs = Query.GetEntitiesByComponentType<ImprisonedBuff>(includeDisabled: true);
+            for (int i = 0; i < buffs.Length; i++)
+            {
+                Entity unit;
+                try { unit = CreateGameplayEventServerUtility.GetBuffTarget(Core.EntityManager, buffs[i]); }
+                catch { continue; }
+                if (!unit.Exists() || !unit.Has<LocalToWorld>()) continue;
+                if (GetTerritoryIndexAt(unit.Read<LocalToWorld>().Position) != territoryIndex) continue;
+
+                string name = unit.Has<PrefabGUID>() ? unit.Read<PrefabGUID>().GetPrefabName() : "Prisoner";
+                string bloodType = "-"; int bloodQuality = -1;
+                if (unit.Has<Blood>())
+                {
+                    var blood = unit.Read<Blood>();
+                    bloodType = blood.BloodType.GetPrefabName();
+                    bloodQuality = (int)System.Math.Round(blood.Quality);
+                }
+                result.Add((name, bloodType, bloodQuality));
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (Faust.Config.Settings.VerboseLogging.Value)
+                Core.Log.LogWarning($"[FAUST CASTLE] CollectPrisoners failed: {ex.Message}");
+        }
+        finally { if (buffs.IsCreated) buffs.Dispose(); }
+        return result;
+    }
+
+    TerritoryInfo BuildInfo(Entity territoryEntity, CastleTerritory ct, bool extras = false)
     {
         int size = 0;
         if (Core.EntityManager.HasComponent<CastleTerritoryBlocks>(territoryEntity))
@@ -415,16 +523,19 @@ internal sealed class CastleService
                 SizeBlocks = size,
                 State = PlotState.Unclaimed,
                 DecaySeconds = 0,
+                HeartLevel = -1, Floors = -1, ClaimedUnix = -1, ClanName = null, TotalItems = -1,
             };
         }
 
         var ch = heart.Read<CastleHeart>();
         ulong steam = 0; string ownerName = "Unknown"; bool online = false; long lastConnected = 0;
+        Entity ownerUserEntity = Entity.Null;
         if (heart.TryGetComponent<UserOwner>(out var uo))
         {
             var ownerUser = uo.Owner.GetEntityOnServer();
             if (ownerUser.TryGetComponent<User>(out var u))
             {
+                ownerUserEntity = ownerUser;
                 steam = u.PlatformId;
                 ownerName = u.CharacterName.ToString();
                 online = u.IsConnected;
@@ -446,6 +557,18 @@ internal sealed class CastleService
             decay = (long)System.Math.Max(0, remaining);
         }
 
+        // §8a extras — only for the single castleinfo lookup (one heart-connection scan). All sentineled
+        // so a value Faust can't resolve degrades to "absent" on the wire (Raphael shows each only when present).
+        int heartLevel = -1, floors = -1;
+        long totalItems = -1;
+        string clanName = null;
+        if (extras)
+        {
+            ComputeHeartExtras(heart, out floors, out totalItems);
+            heartLevel = ResolveHeartLevel(heart);
+            clanName = ResolveOwnerClan(ownerUserEntity);
+        }
+
         return new TerritoryInfo
         {
             TerritoryIndex = ct.CastleTerritoryIndex,
@@ -458,7 +581,85 @@ internal sealed class CastleService
             SizeBlocks = size,
             State = state,
             DecaySeconds = decay,
+            HeartLevel = heartLevel,
+            Floors = floors,
+            ClaimedUnix = -1, // no reliable heart-placement timestamp in exposed ECS (LastRelocationTime ≠ placement)
+            ClanName = clanName,
+            TotalItems = totalItems,
         };
+    }
+
+    /// <summary>§8a: one heart-connection scan computing the castle's floor storeys (distinct integer Y
+    /// among connected <see cref="CastleFloor"/> tiles) and grand-total item count (every connected
+    /// container's <see cref="InventoryBuffer"/>). Both sentinel to -1 on any failure.</summary>
+    void ComputeHeartExtras(Entity heart, out int floors, out long totalItems)
+    {
+        floors = -1; totalItems = -1;
+        try
+        {
+            var storeys = new HashSet<int>();
+            long items = 0; bool sawContainer = false;
+            var ents = Query.GetEntitiesByComponentType<CastleHeartConnection>(includeDisabled: true);
+            try
+            {
+                for (int i = 0; i < ents.Length; i++)
+                {
+                    var e = ents[i];
+                    if (!e.TryGetComponent<CastleHeartConnection>(out var c) || c.CastleHeartEntity.GetEntityOnServer() != heart) continue;
+
+                    if (e.Has<CastleFloor>() && e.Has<LocalToWorld>())
+                        storeys.Add((int)math.round(e.Read<LocalToWorld>().Position.y));
+
+                    if (InventoryUtilities.TryGetInventoryEntity(Core.EntityManager, e, out Entity inv)
+                        && Core.EntityManager.HasComponent<InventoryBuffer>(inv))
+                    {
+                        sawContainer = true;
+                        var buf = Core.EntityManager.GetBuffer<InventoryBuffer>(inv);
+                        for (int b = 0; b < buf.Length; b++)
+                        {
+                            var slot = buf[b];
+                            if (slot.ItemType.GuidHash == 0 || slot.Amount <= 0) continue;
+                            items += slot.Amount;
+                        }
+                    }
+                }
+            }
+            finally { ents.Dispose(); }
+            if (storeys.Count > 0) floors = storeys.Count;
+            if (sawContainer) totalItems = items;
+        }
+        catch (System.Exception ex)
+        {
+            if (Faust.Config.Settings.VerboseLogging.Value)
+                Core.Log.LogWarning($"[FAUST CASTLE] ComputeHeartExtras failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>§8a: the castle heart's level/tier, or -1 if no confirmable numeric level field is
+    /// exposed. (Kept as a guarded stub — the game's <c>CastleHeartModelTier</c> is a visual marker with
+    /// no documented numeric value; resolve in-game and wire a real value here when confirmed.)</summary>
+    int ResolveHeartLevel(Entity heart) => -1;
+
+    /// <summary>§8a: the owning clan's name from the owner User's clan link, or null if solo / unresolved.</summary>
+    string ResolveOwnerClan(Entity ownerUserEntity)
+    {
+        try
+        {
+            if (!ownerUserEntity.Exists() || !ownerUserEntity.TryGetComponent<User>(out var u)) return null;
+            if (u.ClanEntity.Equals(NetworkedEntity.Empty)) return null;
+            var clan = u.ClanEntity.GetEntityOnServer();
+            if (clan.Exists() && clan.Has<ClanTeam>())
+            {
+                var name = clan.Read<ClanTeam>().Name.ToString();
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (Faust.Config.Settings.VerboseLogging.Value)
+                Core.Log.LogWarning($"[FAUST CASTLE] ResolveOwnerClan failed: {ex.Message}");
+        }
+        return null;
     }
 
     static double FuelTimeRemaining(CastleHeart ch)

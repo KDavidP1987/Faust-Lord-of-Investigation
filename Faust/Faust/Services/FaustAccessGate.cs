@@ -99,7 +99,10 @@ internal static class FaustAccessGate
 
         // Usage rate-limit (flat cooldown and/or window/period).
         if (!exempt && !Core.Usage.Check(user.PlatformId, f, out var useCode, out var useSecs))
+        {
+            Core.UsageStats?.RecordCooldownHit(featureKey); // §8e usage accounting (admin oversight)
             return GateResult.Deny($"[FAUST:err] code={useCode} feature={featureKey} secs={useSecs}");
+        }
 
         // Item cost (verify; reserved, consumed in Commit after a real result).
         bool costOwed = !exempt && f.HasCost;
@@ -117,6 +120,10 @@ internal static class FaustAccessGate
 
         Core.Usage.Record(user.PlatformId, gate.Feature);
         if (gate.CostOwed) ConsumeItem(ctx, gate.Feature);
+
+        // §8e usage accounting: tally the successful use (+ payer/quantity when a cost was owed).
+        Core.UsageStats?.RecordUse(gate.Feature.Key, user.PlatformId, gate.CostOwed,
+            gate.CostOwed ? gate.Feature.CostQuantity.Value : 0);
 
         if (Settings.AuditQueries.Value)
             Core.Log.LogInfo($"[FAUST AUDIT] steamId={user.PlatformId} ran '{gate.Feature.Key}' charged={gate.CostOwed}");

@@ -131,6 +131,30 @@ internal sealed class UnlockService
         }
     }
 
+    /// <summary>§8e access: how many players have an explicit admin grant for this feature.</summary>
+    public int GrantedCount(string feature)
+    {
+        int n = 0;
+        foreach (var set in _grants.Values) if (set.Contains(feature)) n++;
+        return n;
+    }
+
+    /// <summary>
+    /// §8e access: how many tracked players satisfy this feature's unlock criterion (grant OR the
+    /// configured boss/final-boss kill). Evaluated over every player Faust knows a defeat or grant for
+    /// (defeated ∪ grants). Returns -1 when the feature has no unlock criterion (everyone qualifies —
+    /// "N/A" rather than a misleading count).
+    /// </summary>
+    public int UnlockedCount(FeatureConfig f)
+    {
+        if (f.Unlock.Kind == UnlockKind.None) return -1;
+        var players = new HashSet<ulong>(_defeated.Keys);
+        foreach (var k in _grants.Keys) players.Add(k);
+        int n = 0;
+        foreach (var steam in players) if (IsUnlocked(steam, f, out _)) n++;
+        return n;
+    }
+
     public string Describe(ulong steam)
     {
         int defeats = _defeated.TryGetValue(steam, out var d) ? d.Count : 0;

@@ -336,12 +336,15 @@ entity ONLY while spawned; killed, it despawns and respawns on a timer (no entit
   (`down`). Because the spawn system pre-instantiates pooled VBlood entities, the `down` set often covers
   much of the boss roster — a placed instance for a given guid always wins over a pooled one. "dead"
   collapses into `down` (no on-map entity). On-demand; zero passive cost.
-- **§18 (under investigation):** some bosses an admin expects `up` come back `down` — V Rising lazy-spawns
-  many V Bloods, so they exist only as pooled entities (off-map sentinel) until a player triggers their
-  spawn region. A server-side diagnostic `.faust admin bossdiag [name|guid]` now dumps each VBlood entity's
-  position/components to confirm whether it's pooled, mis-thresholded (`MapLimit`), or filtered out — the
-  next step is resolving spawn-region coordinates so pooled bosses still get a map position. No Raphael
-  change; the classification may shift once that lands.
+- **§18 (in progress):** some bosses an admin expects `up` come back `down`. Root cause: V Rising parks
+  not-currently-active V Bloods at an off-map sentinel (~10000), so a parked boss is correctly `down` (it
+  isn't on the map). Two sub-cases: (a) an outer-region boss whose **real** position is just beyond the
+  placed-vs-pooled threshold — now fixed by making that threshold **live-tunable** (`[Faust.Bosses] MapLimit`,
+  default 5000, also via `.faust admin setglobal bossmaplimit=…`; raise toward 6000–8000 but keep it below
+  ~10000); or (b) a genuinely-parked boss at the sentinel — no threshold helps, and showing its fixed spawn
+  location would need V Rising's spawn-zone data (a separate spike, not yet reliable to read). Use
+  `.faust admin bossdiag <name>` to see a boss's real parked position and tell the two apart. No Raphael
+  change; classification may shift as this is tuned.
 
 ### §B2 `kills` — kill + boss-defeat leaderboards — IMPLEMENTED (ApiVersion ≥18)
 Own feature key `kills` (AdminOnly default). Fed by the existing death hook (no new system), tallied per

@@ -26,7 +26,11 @@ In-game configuration, two new investigation features, and the open Raphael serv
   `.faust api bosses [page]` and `.faust api boss <name|guid>` report each boss Faust can see: live bosses
   carry **position (x/z), region, current/max health + hp%, level, status=up**; bosses a player has defeated
   but that aren't currently spawned carry **status=down defeated=1**. Live world entities only (a boss has no
-  entity while on its respawn timer); on-demand, zero passive cost. (`Services/BossService.cs`.)
+  entity while on its respawn timer); on-demand, zero passive cost. (`Services/BossService.cs`.) The
+  placed-vs-pooled distance threshold is **live-tunable** (`[Faust.Bosses] MapLimit`, default 5000) — raise it
+  (e.g. 6000–8000, below ~10000) if outer-region bosses you know are alive read `down` (Raphael §18); use
+  `.faust admin bossdiag <name>` to see a boss's real parked position. Genuinely-parked bosses at the off-map
+  sentinel remain `down` (locating them would need V Rising's spawn-zone data — a future spike).
 - **Kill leaderboards** (new `kills` feature/handshake token, AdminOnly default). `.faust api kills [days=0]`
   (top players by kills, +PvP) and `.faust api bosskills [days=0]` (V Blood defeat counts) — `days 0` =
   all-time, else a rolling UTC-day window. Fed from the existing death hook (no new system), bucketed per

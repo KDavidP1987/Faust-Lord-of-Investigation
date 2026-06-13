@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using Faust.Config;
 using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
@@ -40,10 +41,11 @@ internal sealed class BossService
 
     /// <summary>All bosses Faust can currently see: live ones (with position/health) plus defeated bosses
     /// that aren't currently spawned. Live first, then by name.</summary>
-    // The Vardoran playable map sits well within ±this (the buildable grid is ~±3200). Pooled/staged
-    // boss entities that aren't actually placed in the world park at a far off-map sentinel (observed
-    // ~10000,10000), so a position beyond this magnitude means "not really on the map" (Raphael §16).
-    const float MapLimit = 5000f;
+    // The placed-vs-pooled distance threshold — live-tunable via [Faust.Bosses] MapLimit. The Vardoran
+    // playable map sits well within ±this; pooled/parked boss entities that aren't on the map park at a far
+    // off-map sentinel (observed ~10000,10000), so a position beyond this means "not really on the map"
+    // (Raphael §16/§18). Raise it if outer-region bosses read 'down', but keep it below ~10000.
+    static float MapLimit => Settings.BossMapLimit.Value;
 
     public List<BossSnapshot> GetBosses()
     {

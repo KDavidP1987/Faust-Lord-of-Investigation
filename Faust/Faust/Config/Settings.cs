@@ -155,6 +155,10 @@ internal static class Settings
     public static ConfigEntry<int> WorldScanInterval { get; private set; }
     public static ConfigEntry<int> WorldScanMaxResults { get; private set; }
 
+    // ---- Boss board: the placed-vs-pooled distance threshold. A live VBlood entity beyond this magnitude
+    //      (on either axis) is treated as pooled/parked (off-map) and reported status=down with no coords. ----
+    public static ConfigEntry<float> BossMapLimit { get; private set; }
+
     static readonly Dictionary<string, FeatureConfig> _features = new();
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
     public static FeatureConfig Feature(string key) => _features.TryGetValue(key, out var f) ? f : null;
@@ -288,6 +292,16 @@ internal static class Settings
             "map has more whitelisted assets than this, the scan stops at the cap and logs a warning (no " +
             "silent truncation). Filter the query (by type/id/blood) to see specific things; raise this only " +
             "if you really need the full map at once.");
+
+        BossMapLimit = config.Bind(
+            "Faust.Bosses", "MapLimit", 5000f,
+            "Boss board (.faust api bosses) placed-vs-pooled threshold, in world units. A live V Blood entity " +
+            "within ±this on both axes is reported 'up' with its coordinates; one beyond it is treated as " +
+            "pooled/parked off-map and reported 'down' (no coords). The playable map sits well within ±3500, " +
+            "and not-currently-spawned bosses park at a far sentinel (~10000). If outer-region bosses you know " +
+            "are alive show as 'down', raise this (e.g. 6000–8000, but keep it BELOW ~10000 or parked bosses " +
+            "will report bogus coords). Use '.faust admin bossdiag <name>' to see a boss's real parked position " +
+            "before tuning.");
 
         DataNamespace = config.Bind(
             "Faust.Collection", "DataNamespace", "",

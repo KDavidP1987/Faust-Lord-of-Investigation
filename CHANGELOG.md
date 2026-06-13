@@ -27,10 +27,13 @@ In-game configuration, two new investigation features, and the open Raphael serv
   carry **position (x/z), region, current/max health + hp%, level, status=up**; bosses a player has defeated
   but that aren't currently spawned carry **status=down defeated=1**. Live world entities only (a boss has no
   entity while on its respawn timer); on-demand, zero passive cost. (`Services/BossService.cs`.) The
-  placed-vs-pooled distance threshold is **live-tunable** (`[Faust.Bosses] MapLimit`, default 5000) — raise it
-  (e.g. 6000–8000, below ~10000) if outer-region bosses you know are alive read `down` (Raphael §18); use
-  `.faust admin bossdiag <name>` to see a boss's real parked position. Genuinely-parked bosses at the off-map
-  sentinel remain `down` (locating them would need V Rising's spawn-zone data — a future spike).
+  on-map distance threshold is **live-tunable** (`[Faust.Bosses] MapLimit`); use `.faust admin bossdiag <name>`
+  to inspect a boss's real position. **§18 resolved:** in-game diagnostics showed the V Rising map extends well
+  past ±5000 and that streamed-out bosses keep their **real** positions (no sentinel-parking), so outer-region
+  bosses were wrongly read as `down` by the original ±5000 cutoff. The default `MapLimit` is now **9000**
+  (covers the whole map, still excludes the ~10000 off-map sentinel), so all live bosses report `up` with
+  coordinates. **Raphael note:** its old ±5000 client-side coord guard (§16) must be raised/removed to match,
+  or it will re-hide the now-correct >5000 boss coordinates.
 - **Kill leaderboards** (new `kills` feature/handshake token, AdminOnly default). `.faust api kills [days=0]`
   (top players by kills, +PvP) and `.faust api bosskills [days=0]` (V Blood defeat counts) — `days 0` =
   all-time, else a rolling UTC-day window. Fed from the existing death hook (no new system), bucketed per

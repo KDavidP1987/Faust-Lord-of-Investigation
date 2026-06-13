@@ -95,7 +95,7 @@ internal static class ConfigEditor
         Int("mapmarkerprefab", Settings.MapMarkerPrefabGuid, int.MinValue, int.MaxValue, "PrefabGUID", "mapmarkerprefabguid"),
         Int("worldscaninterval", Settings.WorldScanInterval, 5, int.MaxValue, "seconds, >= 5"),
         Int("worldscanmaxresults", Settings.WorldScanMaxResults, 0, int.MaxValue, ">= 0 (0 = unlimited)"),
-        Float("bossmaplimit", Settings.BossMapLimit, 100f, 9000f, "world units (boss placed-vs-pooled threshold; keep < ~10000)"),
+        Float("bossmaplimit", Settings.BossMapLimit, 100f, 20000f, "world units (boss on-map threshold; default 9000, keep < ~10000)"),
     };
 
     // ---- field factories ----

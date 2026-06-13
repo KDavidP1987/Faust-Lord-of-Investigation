@@ -13,7 +13,8 @@ Configure Faust in-game, plus two new things to investigate:
   apply instantly and are saved to the config file.
 - **Boss status board.** `.faust api bosses` / `boss <name>` — see which V Bloods are up right now, **where
   they are** (coords + region), their **health**, level, and whether they've been defeated. (Admin-default;
-  open it to players if you like.)
+  open it to players if you like.) Now covers the **whole map**, including outer-region bosses (the on-map
+  range is tunable via `[Faust.Bosses] MapLimit`).
 - **Kill leaderboards.** `.faust api kills` (top killers) and `.faust api bosskills` (how many times each
   boss has fallen) over today, this week, or all-time — for fun server leaderboards and achievements.
   Opt-out via `[Faust.Collection] KillTracking`.

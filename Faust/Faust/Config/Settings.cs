@@ -294,14 +294,14 @@ internal static class Settings
             "if you really need the full map at once.");
 
         BossMapLimit = config.Bind(
-            "Faust.Bosses", "MapLimit", 5000f,
-            "Boss board (.faust api bosses) placed-vs-pooled threshold, in world units. A live V Blood entity " +
-            "within ±this on both axes is reported 'up' with its coordinates; one beyond it is treated as " +
-            "pooled/parked off-map and reported 'down' (no coords). The playable map sits well within ±3500, " +
-            "and not-currently-spawned bosses park at a far sentinel (~10000). If outer-region bosses you know " +
-            "are alive show as 'down', raise this (e.g. 6000–8000, but keep it BELOW ~10000 or parked bosses " +
-            "will report bogus coords). Use '.faust admin bossdiag <name>' to see a boss's real parked position " +
-            "before tuning.");
+            "Faust.Bosses", "MapLimit", 9000f,
+            "Boss board (.faust api bosses) on-map threshold, in world units. A live V Blood within ±this on " +
+            "both axes is reported 'up' with its coordinates; beyond it, 'down' (no coords). In-game diagnostics " +
+            "(.faust admin bossdiag) showed the V Rising map extends WELL past ±5000 and that streamed-out " +
+            "bosses keep their REAL positions (there is no sentinel-parking), so the default is 9000 — generous " +
+            "enough to cover the whole map while still excluding any far off-map sentinel (~10000). Raise it " +
+            "further only if a boss you know is alive still reads 'down' (keep it below ~10000). Lower it only " +
+            "if a boss shows up at bogus far-off coordinates. See '.faust admin bossdiag <name>'.");
 
         DataNamespace = config.Bind(
             "Faust.Collection", "DataNamespace", "",

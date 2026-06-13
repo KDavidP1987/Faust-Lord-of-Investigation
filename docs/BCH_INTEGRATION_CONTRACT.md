@@ -336,15 +336,17 @@ entity ONLY while spawned; killed, it despawns and respawns on a timer (no entit
   (`down`). Because the spawn system pre-instantiates pooled VBlood entities, the `down` set often covers
   much of the boss roster — a placed instance for a given guid always wins over a pooled one. "dead"
   collapses into `down` (no on-map entity). On-demand; zero passive cost.
-- **§18 (in progress):** some bosses an admin expects `up` come back `down`. Root cause: V Rising parks
-  not-currently-active V Bloods at an off-map sentinel (~10000), so a parked boss is correctly `down` (it
-  isn't on the map). Two sub-cases: (a) an outer-region boss whose **real** position is just beyond the
-  placed-vs-pooled threshold — now fixed by making that threshold **live-tunable** (`[Faust.Bosses] MapLimit`,
-  default 5000, also via `.faust admin setglobal bossmaplimit=…`; raise toward 6000–8000 but keep it below
-  ~10000); or (b) a genuinely-parked boss at the sentinel — no threshold helps, and showing its fixed spawn
-  location would need V Rising's spawn-zone data (a separate spike, not yet reliable to read). Use
-  `.faust admin bossdiag <name>` to see a boss's real parked position and tell the two apart. No Raphael
-  change; classification may shift as this is tuned.
+- **§18 — RESOLVED (server-side); ⚠️ needs a Raphael-side guard change.** Some bosses read `down` when the
+  admin expected `up`. Root cause found via `.faust admin bossdiag`: the V Rising map extends **well past
+  ±5000**, and streamed-out V Bloods keep their **real** positions (there is **no** sentinel-parking, contrary
+  to the §16 assumption) — so the original ±5000 `up`/`down` cutoff wrongly classed every outer-region boss as
+  `down`. Fix: the cutoff is now `[Faust.Bosses] MapLimit`, **default raised to 9000** (covers the whole map,
+  still excludes a ~10000 off-map sentinel), live-tunable via `.faust admin setglobal bossmaplimit=…`. All live
+  bosses now report `up` with coordinates.
+  **⚠️ Raphael action:** the old **±5000 client-side coord guard** from §16 ("treat boss coords beyond ±5000 as
+  no-position") must now be **raised to ~9000 or removed** — otherwise Raphael will re-hide the now-correct
+  outer-region boss coordinates that Faust sends. (§16's guard was added when we wrongly believed >5000 = a
+  bogus sentinel; that's no longer true.)
 
 ### §B2 `kills` — kill + boss-defeat leaderboards — IMPLEMENTED (ApiVersion ≥18)
 Own feature key `kills` (AdminOnly default). Fed by the existing death hook (no new system), tallied per

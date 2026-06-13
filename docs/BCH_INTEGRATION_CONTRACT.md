@@ -319,23 +319,25 @@ entity ONLY while spawned; killed, it despawns and respawns on a timer (no entit
 ```
 - **`status=up`** — a live world entity exists right now: `x`/`z` (world coords, same space as `positions`),
   `region` (`Wire.Region`, `-` if none), `hp`/`hpmax` (current/max) + `hppct` (0–100), `level` are present.
-- **`status=down`** — NOT placed in the world right now, so the live fields (`x`/`z`/`region`/`hp`/…) are
-  **omitted**. Two sources: (a) a **pooled/staged** VBlood entity that exists but isn't on the map (it parks
-  at the off-map spawn sentinel — Faust now reports these as `down` with no coords instead of the bogus
-  `~10000,10000` limbo position, **Raphael §16 server-side fix, ApiVersion 18**), or (b) a boss a player has
-  defeated (from the unlock store), which carries `defeated=1`. So Raphael no longer needs its ±5000 client
-  guard — `up` rows always carry a real on-map position.
+- **`status=down`** — NOT on the map right now, so the live fields (`x`/`z`/`region`/`hp`/…) are **omitted**.
+  Two sources: (a) a live VBlood entity beyond the on-map cutoff `[Faust.Bosses] MapLimit` (default **9000**),
+  or (b) a boss a player has defeated (from the unlock store), which carries `defeated=1`. **`up` rows can now
+  carry coordinates anywhere on the map, well past ±5000** (the §16 belief that >±5000 = a bogus sentinel was
+  disproven — see §18). **⚠️ Raphael must therefore raise its old ±5000 client-side coord guard to ~9000 (or
+  remove it)**, or it will re-hide every legitimate outer-region boss Faust sends as `up`.
 - **`defeated`** = has ANY player on the server ever killed this V Blood (server-wide, `0|1`); a live boss
   can be `status=up defeated=1` (up now, beaten before).
 - **`name`** is the prefab dev-name (`CHAR_*_VBlood`); Raphael may prettify by `guid`.
 - **Single `boss <name|guid>` lookup** emits ONE `[FAUST:boss]` with **no** end trailer (commit immediately,
-  like a single `castleinfo`); the `bosses` list emits N rows **followed by** `[FAUST:end] cmd=bosses`. A
-  matched-name-or-guid is required (`<name>` is greedy, so multi-word names like `Solarus the Immaculate`
-  work); no match → `[FAUST:err] code=notfound feature=bosses`. Empty board still sends `count=0`.
-- **Scope:** the board lists placed bosses (`up`) + any pooled/staged boss entities and defeated bosses
-  (`down`). Because the spawn system pre-instantiates pooled VBlood entities, the `down` set often covers
-  much of the boss roster — a placed instance for a given guid always wins over a pooled one. "dead"
-  collapses into `down` (no on-map entity). On-demand; zero passive cost.
+  like a single `castleinfo`); the `bosses` list emits N rows **followed by** `[FAUST:end] cmd=bosses`. The
+  arg is a **single token** (VCF 0.10.4 — send the prefab GUID or the wire-safe `_`-encoded name; a one-word
+  fragment also matches by substring); no match → `[FAUST:err] code=notfound feature=bosses`. Empty board
+  still sends `count=0`.
+- **Scope:** Faust keeps the full V Blood roster instantiated (streamed out when no player is near, but
+  retaining real positions). The board lists every live boss within the on-map cutoff `[Faust.Bosses] MapLimit`
+  (default **9000**, covering the whole map) as `up` with coordinates, plus any defeated-but-not-currently-live
+  boss as `down`. "dead" collapses into `down`. On-demand; zero passive cost. *(History: the original ±5000
+  cutoff wrongly read outer-region bosses as `down`; §18 raised it — see that note + the Raphael guard action.)*
 - **§18 — RESOLVED (server-side); ⚠️ needs a Raphael-side guard change.** Some bosses read `down` when the
   admin expected `up`. Root cause found via `.faust admin bossdiag`: the V Rising map extends **well past
   ±5000**, and streamed-out V Bloods keep their **real** positions (there is **no** sentinel-parking, contrary
@@ -913,11 +915,15 @@ token. Detailed shapes are in the sections referenced.
   "Data status" button got nothing; now chunked. Other admin readouts hardened the same way.
 - **§14 — `objectscan` retired.** Gone from the handshake, `[FAUST:access]`, and `.faust admin status`.
   Raphael already ignores it.
-- **§16 — boss board no longer emits limbo coords.** Pooled/off-map bosses now report `status=down` with **no**
-  `x`/`z` (instead of the bogus `~10000,10000`). Raphael can **drop its ±5000 client guard** — every `up` row
-  carries a real on-map position.
-- **§18 — boss classification may shift.** Lazy-spawned bosses read `down` until placed; a server-side
-  diagnostic `.faust admin bossdiag` exists to tune this. No wire-shape change.
+- **🔴 §16/§18 — boss coords: Raphael MUST raise (or remove) its ±5000 client-side coord guard.** This is the
+  likely reason a Faust-fixed server *still* shows "only half the bosses" in Raphael. Diagnostics
+  (`.faust admin bossdiag`) disproved the §16 assumption that boss coords beyond ±5000 were a bogus sentinel:
+  the V Rising map extends **well past ±5000**, and streamed-out V Bloods keep their **real** positions (no
+  sentinel-parking). Faust's on-map cutoff is now `[Faust.Bosses] MapLimit` (**default 9000**, live via
+  `.faust admin setglobal bossmaplimit=…`), so live bosses across the whole map report `up` with coordinates.
+  Raphael's old ±5000 guard will now **re-hide every boss between 5000 and 9000** that Faust correctly sends —
+  **raise that guard to match Faust's `MapLimit` (~9000) or remove it.** (Wire shape unchanged; this is purely
+  the client-side display filter. See §B1/§C1.)
 - **`clanmembers` / `boss` arg form.** Both take a **single token** now (VCF 0.10.4): send the wire-safe
   (`_`-encoded) clan name with an optional **separate** `int page` (`clanmembers Blood_Lords 2`), and the boss
   GUID or wire-safe name for `boss`. (No more packing a page into the name string.)

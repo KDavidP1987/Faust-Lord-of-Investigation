@@ -30,20 +30,27 @@ internal static class AdminDataCommands
         string ns = FaustPaths.IsNamespaced ? Settings.DataNamespace.Value : "(shared)";
         int ret = Settings.SessionRetentionDays.Value;
 
-        var sb = new StringBuilder();
-        sb.AppendLine($"Faust data — namespace: {ns}; on disk ~{kb} KB; retention: {(ret <= 0 ? "keep forever" : ret + " day(s)")}.");
-        sb.AppendLine($"  Activity: {sessions} session(s), {conc} concurrency point(s), {regions} region sample(s), " +
-                      $"{names} name(s); oldest record {(oldest <= 0 ? "—" : FmtDate(oldest))}. Online now: {Core.Store.OnlineCount}.");
-        sb.AppendLine($"  Collection: SessionTracking={(Settings.SessionTracking.Value ? "on" : "off")}, " +
-                      $"ConcurrencySampling={(Settings.ConcurrencySampling.Value ? "on" : "off")}.");
         var (hmCells, hmSamples, hmPlayers) = Core.Heatmap.GetStats();
-        sb.AppendLine($"  Unlocks: {players} player(s), {defeats} V-blood defeat(s), {grants} grant(s). " +
-                      $"Usage locks: {Core.Usage.UsageCount} pair(s); usage tally: {Core.UsageStats.BucketCount} bucket(s).");
-        sb.AppendLine($"  Heatmap: {(Settings.HeatmapEnabled.Value ? $"collecting every {Math.Clamp(Settings.HeatmapSampleSeconds.Value, 30, 300)}s" : "off")}; " +
-                      $"{hmCells} cell(s) over {hmPlayers} player(s), {hmSamples} sample(s).");
-        sb.Append("Manage: '.faust admin data clear <days>' (prune old activity) · " +
+
+        // One ctx.Reply PER LINE — VCF converts each reply to a FixedString512Bytes and THROWS (not
+        // truncates) past 512 bytes, so a single multi-line StringBuilder reply blew up on populated
+        // servers (Raphael §13). Each line below is comfortably under the cap.
+        ctx.Reply($"Faust data — namespace: {ns}; on disk ~{kb} KB; retention: {(ret <= 0 ? "keep forever" : ret + " day(s)")}.");
+        ctx.Reply($"  Activity: {sessions} session(s), {conc} concurrency point(s), {regions} region sample(s), " +
+                  $"{names} name(s); oldest record {(oldest <= 0 ? "—" : FmtDate(oldest))}. Online now: {Core.Store.OnlineCount}.");
+        ctx.Reply($"  Collection: SessionTracking={(Settings.SessionTracking.Value ? "on" : "off")}, " +
+                  $"ConcurrencySampling={(Settings.ConcurrencySampling.Value ? "on" : "off")}, " +
+                  $"KillTracking={(Settings.KillTracking.Value ? "on" : "off")}.");
+        ctx.Reply($"  Unlocks: {players} player(s), {defeats} V-blood defeat(s), {grants} grant(s). " +
+                  $"Usage locks: {Core.Usage.UsageCount} pair(s); usage tally: {Core.UsageStats.BucketCount} bucket(s).");
+        var (killP, killB) = Core.Kills.BucketCounts;
+        ctx.Reply($"  Kills: {killP} player-day + {killB} boss-day bucket(s).");
+        ctx.Reply($"  WorldScan: {(Core.WorldScan?.WhitelistCount ?? 0)} whitelisted prefab(s) " +
+                  $"(scan every {System.Math.Max(5, Settings.WorldScanInterval.Value)}s, cap {Settings.WorldScanMaxResults.Value}).");
+        ctx.Reply($"  Heatmap: {(Settings.HeatmapEnabled.Value ? $"collecting every {Math.Clamp(Settings.HeatmapSampleSeconds.Value, 30, 300)}s" : "off")}; " +
+                  $"{hmCells} cell(s) over {hmPlayers} player(s), {hmSamples} sample(s).");
+        ctx.Reply("Manage: '.faust admin data clear <days>' (prune old activity) · " +
                   "'.faust admin data wipe <activity|unlocks|usage|heatmap|all> confirm'.");
-        ctx.Reply(sb.ToString());
     }
 
     /// <summary>Layered-admin guard for the destructive data commands (ResetSteamIds allowlist).</summary>
@@ -71,14 +78,14 @@ internal static class AdminDataCommands
                   "Playtime / first-seen / charts now reflect the trimmed window.");
     }
 
-    [Command("wipe", description: "Erase a collected-data store. Usage: .faust admin data wipe <activity|unlocks|usage|heatmap|all> confirm", adminOnly: true)]
+    [Command("wipe", description: "Erase a collected-data store. Usage: .faust admin data wipe <activity|unlocks|usage|heatmap|kills|all> confirm", adminOnly: true)]
     public static void Wipe(ChatCommandContext ctx, string store, string confirm = null)
     {
         if (!MayReset(ctx)) return;
         store = store?.ToLowerInvariant();
-        if (store is not ("activity" or "unlocks" or "usage" or "heatmap" or "all"))
+        if (store is not ("activity" or "unlocks" or "usage" or "heatmap" or "kills" or "all"))
         {
-            ctx.Reply("Specify what to wipe: activity | unlocks | usage | heatmap | all.");
+            ctx.Reply("Specify what to wipe: activity | unlocks | usage | heatmap | kills | all.");
             return;
         }
 
@@ -99,6 +106,8 @@ internal static class AdminDataCommands
             sb.Append($" {Core.Usage.WipeAll()} usage lock(s) + {Core.UsageStats.WipeAll()} usage-tally bucket(s);");
         if (store is "heatmap" or "all")
             sb.Append($" {Core.Heatmap.WipeAll()} heatmap cell(s);");
+        if (store is "kills" or "all")
+            sb.Append($" {Core.Kills.WipeAll()} kill bucket(s);");
         sb.Append(" done.");
         ctx.Reply(sb.ToString());
     }
@@ -113,7 +122,8 @@ internal static class AdminDataCommands
             "unlocks" => $"{players} player(s)' V-blood defeats + {grants} grant(s) (progression gates reset)",
             "usage" => $"{Core.Usage.UsageCount} cooldown/window lock(s) + {Core.UsageStats.BucketCount} usage-tally bucket(s)",
             "heatmap" => $"{Core.Heatmap.GetStats().cells} heat-map cell(s) (player-position density reset)",
-            _ => "ALL collected data: activity, unlock progress, usage locks, and the heat map",
+            "kills" => $"{Core.Kills.BucketCounts.playerBuckets + Core.Kills.BucketCounts.bossBuckets} kill bucket(s) (kill + boss-defeat leaderboards reset)",
+            _ => "ALL collected data: activity, unlock progress, usage locks, the heat map, and kills",
         };
     }
 

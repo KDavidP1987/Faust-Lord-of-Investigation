@@ -105,13 +105,15 @@ internal static class Settings
     public const string CastleInfo = "castleinfo";           // #2 plot owner/heart/decay/last-online
     public const string PlayerInfo = "playerinfo";           // #3 last login, frequency, playtime
     public const string PlotAvailability = "plotavailability"; // #4 free plots by size
-    public const string ObjectScan = "objectscan";           // #5 nearby object info
     public const string CastleResources = "castleresources"; // #6 enemy castle resource totals (PvP)
     public const string Stats = "stats";                     // #8 server stats / leaderboards
     public const string AllCastles = "allcastles";           // full server castle map (every territory)
     public const string DecayWatch = "decaywatch";           // claimed castles sorted by soonest-to-decay
     public const string Clans = "clans";                     // clan composition: clanned vs independent + rosters
     public const string Heatmap = "heatmap";                 // player-position density grid (per-player + server)
+    public const string Bosses = "bosses";                   // V Blood boss status: position/region/health + up/down/defeated
+    public const string Kills = "kills";                     // kill leaderboards: top killers + boss-defeat counts
+    public const string WorldScan = "worldscan";             // map asset positions: NPC units (+blood) and resource nodes (whitelisted)
 
     public static ConfigEntry<bool> Enabled { get; private set; }
     public static ConfigEntry<bool> AuditQueries { get; private set; }
@@ -135,6 +137,7 @@ internal static class Settings
     // concurrency, powering pinfo/#3 and stats/#8) is the one subsystem that accumulates over time.
     public static ConfigEntry<bool> SessionTracking { get; private set; }
     public static ConfigEntry<bool> ConcurrencySampling { get; private set; }
+    public static ConfigEntry<bool> KillTracking { get; private set; }
     public static ConfigEntry<int> MaxConcurrencyPoints { get; private set; }
     public static ConfigEntry<int> SessionRetentionDays { get; private set; }
     public static ConfigEntry<string> DataNamespace { get; private set; }
@@ -145,6 +148,12 @@ internal static class Settings
     public static ConfigEntry<int> HeatmapSampleSeconds { get; private set; }
     public static ConfigEntry<float> HeatmapCellSize { get; private set; }
     public static ConfigEntry<int> HeatmapMaxCells { get; private set; }
+
+    // ---- World-asset scan (the map of NPC units + resource nodes; the `worldscan` feature). The scan of
+    //      the whole map is EXPENSIVE, so it's cached and rebuilt at most once per interval (the cache TTL
+    //      is the de-facto rate limit), and only ON DEMAND (no idle cost). Bounded by MaxResults. ----
+    public static ConfigEntry<int> WorldScanInterval { get; private set; }
+    public static ConfigEntry<int> WorldScanMaxResults { get; private set; }
 
     static readonly Dictionary<string, FeatureConfig> _features = new();
     public static IReadOnlyDictionary<string, FeatureConfig> Features => _features;
@@ -223,6 +232,13 @@ internal static class Settings
             "Whether to sample the online-player count on each connect/disconnect (the concurrency series " +
             "behind stats concurrency / population graphs). When false, no concurrency points are stored. " +
             "Independent of SessionTracking (you can keep playtime history without the population series).");
+        KillTracking = config.Bind(
+            "Faust.Collection", "KillTracking", true,
+            "Master switch for the PASSIVE kill tally (powers '.faust api kills' top-killers + '.faust api " +
+            "bosskills' boss-defeat counts). Fed from the existing death hook (only does work on a kill, " +
+            "nothing periodic), bucketed per UTC day and bounded by SessionRetentionDays. When false, no " +
+            "kills are recorded and the kill leaderboards return empty. Reset the data with '.faust admin " +
+            "data wipe kills'.");
         MaxConcurrencyPoints = config.Bind(
             "Faust.Collection", "MaxConcurrencyPoints", 4000,
             "Hard cap on retained concurrency samples (oldest trimmed past this). Bounds memory and the " +
@@ -259,6 +275,20 @@ internal static class Settings
             "Hard cap on distinct (player, cell) entries stored (bounds memory + heatmap.json size). Once " +
             "reached, existing cells keep counting but no new cells are added. 0 = unlimited (not advised).");
 
+        WorldScanInterval = config.Bind(
+            "Faust.WorldScan", "ScanIntervalSeconds", 10,
+            "How often (seconds) the world-asset scan ('.faust api worldscan') may rebuild its snapshot of " +
+            "map units/resource nodes. Scanning the whole map is heavy, so a result is cached and reused for " +
+            "this long — queries inside the window read the cache (cheap); the first query after it triggers " +
+            "ONE rescan, server-wide. This is the de-facto rate limit (clamped to a 5s minimum). Raise it on a " +
+            "busy server. The scan is on-demand only — zero cost when nobody is querying.");
+        WorldScanMaxResults = config.Bind(
+            "Faust.WorldScan", "MaxResults", 2000,
+            "Hard cap on assets returned by a single world scan (bounds the snapshot + wire size). When the " +
+            "map has more whitelisted assets than this, the scan stops at the cap and logs a warning (no " +
+            "silent truncation). Filter the query (by type/id/blood) to see specific things; raise this only " +
+            "if you really need the full map at once.");
+
         DataNamespace = config.Bind(
             "Faust.Collection", "DataNamespace", "",
             "Optional label that scopes Faust's stored data to a subfolder (BepInEx/config/Faust/<name>/). " +
@@ -275,13 +305,15 @@ internal static class Settings
         Bind(config, CastleInfo, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, PlayerInfo, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, PlotAvailability, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
-        Bind(config, ObjectScan, AccessLevel.AdminOnly, DeliveryMode.Free);
         Bind(config, CastleResources, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Stats, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, AllCastles, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, DecayWatch, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Clans, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);
         Bind(config, Heatmap, AccessLevel.AdminOnly, DeliveryMode.ServerMediated); // position density (PvP-sensitive)
+        Bind(config, Bosses, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);  // boss locations (PvP-sensitive)
+        Bind(config, Kills, AccessLevel.AdminOnly, DeliveryMode.ServerMediated);   // kill leaderboards
+        Bind(config, WorldScan, AccessLevel.AdminOnly, DeliveryMode.ServerMediated); // map asset positions (economy/PvP intel)
     }
 
     static void Bind(ConfigFile config, string key, AccessLevel defaultAccess, DeliveryMode defaultDelivery)

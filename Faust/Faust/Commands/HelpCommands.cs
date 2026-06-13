@@ -37,21 +37,30 @@ internal static class HelpCommands
                           "[days]' — one player's daily trend; 'stats population' — DAU/WAU/MAU + retention; " +
                           "'stats recency' — active vs dormant; 'stats peak' — concurrency peak/avg; " +
                           "'stats regions' — players+castles per region; 'stats players' — per-player " +
-                          "activity roster; '.faust api clans' — clanned vs independent + rosters (BCH charts).");
+                          "activity roster; '.faust api clans' — clanned vs independent + rosters (BCH charts). " +
+                          "'.faust api kills [days]' — top killers; 'bosskills [days]' — V Blood defeat counts " +
+                          "(days 0 = all-time). '.faust api worldscan [type=units|nodes,bloodqmin=N]' — map of " +
+                          "NPC units (with blood type/quality) + resource nodes, filtered (admin-curated whitelist).");
                 break;
             case "admin":
-                ctx.Reply("ADMIN: per-feature access/cost/cooldown/window/PvP/unlock live in " +
-                          "BepInEx/config/kdpen.Faust.cfg. Live (no restart): '.faust admin block <feature|all> " +
-                          "[minutes]', 'unblock', 'schedule <feature|all> <HH:MM-HH:MM|clear>', 'status', " +
-                          "'grant|revoke <player> <feature>', 'unlocks <player>'. Collected data: " +
-                          "'.faust admin data status', 'data clear <days>', 'data wipe <activity|unlocks|usage|all> " +
-                          "confirm' (data survives a world wipe by default — reset it here when you want to). " +
-                          "'.faust api version' reports each feature's resolved access + price.");
+                ctx.Reply("ADMIN — live config (immediate + persisted, no restart): '.faust admin set " +
+                          "<feature> <setting=value[,setting=value]>' (no spaces) & 'get <feature> [setting]' for per-feature " +
+                          "access/delivery/costitem/costqty/cooldown/window/period/maxuses/availability/" +
+                          "unlock/nearprefab/neardist/adminsexempt; 'setglobal/getglobal' for global " +
+                          "settings; 'resetcfg <feature|global> [setting]' restores defaults.\n" +
+                          "Operational (no restart): '.faust admin block <feature|all> [minutes]', 'unblock', " +
+                          "'schedule <feature|all> <HH:MM-HH:MM|clear>', 'status', 'grant|revoke <player> " +
+                          "<feature>', 'unlocks <player>'. Helpers: 'prefab <id|nameFragment>' looks up prefab " +
+                          "IDs/names for commands; 'worldscan <list|add|remove|seed>' curates the asset map. " +
+                          "Data: '.faust admin data status', 'data clear <days>', " +
+                          "'data wipe <activity|unlocks|usage|kills|heatmap|all> confirm'. '.faust api version' reports each " +
+                          "feature's resolved access + price.");
                 break;
             default:
                 ctx.Reply("Faust help — topics: '.faust help players | castles | server | admin'.\n" +
-                          "Live queries: '.faust api castleinfo|plots|pinfo|positions', plus the BCH handshake " +
-                          "'.faust api version' / 'ping'. More per docs/FAUST_DESIGN.md build order.");
+                          "Live queries: '.faust api castleinfo|plots|pinfo|positions|bosses', plus the BCH " +
+                          "handshake '.faust api version' / 'ping'. '.faust api bosses' / 'boss <name>' — V Blood " +
+                          "status (where they are, health, up/down/defeated). More per docs/FAUST_DESIGN.md.");
                 break;
         }
     }

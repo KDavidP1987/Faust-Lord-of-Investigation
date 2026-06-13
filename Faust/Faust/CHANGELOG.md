@@ -3,6 +3,30 @@
 Condensed, player-facing changelog. Full technical history:
 [GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
 
+## 0.16.0 (2026-06-12)
+
+Configure Faust in-game, plus two new things to investigate:
+
+- **Change any setting from chat — no restart.** Admins can now set every per-feature gate (access, item
+  cost, cooldown, daily/hourly use limits, PvP availability, unlock, proximity) and every global option live
+  with `.faust admin set …` / `setglobal …` (and `get …` to read, `resetcfg …` to restore defaults). Changes
+  apply instantly and are saved to the config file.
+- **Boss status board.** `.faust api bosses` / `boss <name>` — see which V Bloods are up right now, **where
+  they are** (coords + region), their **health**, level, and whether they've been defeated. (Admin-default;
+  open it to players if you like.)
+- **Kill leaderboards.** `.faust api kills` (top killers) and `.faust api bosskills` (how many times each
+  boss has fallen) over today, this week, or all-time — for fun server leaderboards and achievements.
+  Opt-out via `[Faust.Collection] KillTracking`.
+- **In-game prefab lookup.** `.faust admin prefab <id or name>` finds prefab IDs and names right in chat —
+  by ID, or by a partial name — so you don't have to leave the game to set up whitelists, item costs, etc.
+- **World-asset map.** `.faust api worldscan` — a filterable map of **NPC units** (with blood type + quality)
+  and **resource nodes** (ores, trees, plants), so a client can build a "find items on the map" tool and
+  filter by type, blood type, or blood quality. Admins curate what shows with a **whitelist** (`.faust admin
+  worldscan list|add|remove|clear|seed`). The whole-map scan is cached + rate-limited (configurable) to
+  protect performance.
+- **Fixes:** `.faust admin data status` no longer errors on busy servers; retired the unused `objectscan`
+  feature.
+
 ## 0.15.0 (2026-06-11)
 
 Tester-feedback batch — the detail tables beneath the activity charts (who, and when):

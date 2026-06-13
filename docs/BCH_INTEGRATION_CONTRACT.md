@@ -37,9 +37,11 @@ with one line:
 ```
 [FAUST:version] api=<int> plugin=<semver> ready=1 \
     playerpositions=<acc>:<cost> castleinfo=<acc>:<cost> playerinfo=<acc>:<cost> \
-    plotavailability=<acc>:<cost> objectscan=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
-    allcastles=<acc>:<cost> decaywatch=<acc>:<cost> clans=<acc>:<cost> heatmap=<acc>:<cost>
+    plotavailability=<acc>:<cost> castleresources=<acc>:<cost> stats=<acc>:<cost> \
+    allcastles=<acc>:<cost> decaywatch=<acc>:<cost> clans=<acc>:<cost> heatmap=<acc>:<cost> \
+    bosses=<acc>:<cost> kills=<acc>:<cost> worldscan=<acc>:<cost>
 ```
+(`objectscan` was RETIRED in ApiVersion 18 — no longer advertised; see §14 note below.)
 
 (Single line — shown wrapped here for readability.)
 
@@ -66,9 +68,16 @@ All under `[CommandGroup("faust api")]`, each `[Command(...)]` taking an optiona
 `int page = 1` where paged. Every command runs through `FaustAccessGate` first
 (see `FAUST_DESIGN.md` §3); a denied call emits only a `[FAUST:err]` line.
 
-> **Status (ApiVersion 17):** as of Faust 0.14.0, **every feature ships AdminOnly by default** (Faust is
+> **Status (ApiVersion 18):** as of Faust 0.14.0, **every feature ships AdminOnly by default** (Faust is
 > an admin tool first; admins grant pieces to players per server) — so a fresh handshake shows
-> `…=admin:…` for all tokens to a non-admin. New in **17** (§11 world coords, additive/omittable, no new
+> `…=admin:…` for all tokens to a non-admin. New in **18** (Faust 0.16.0): two new features each with its
+> own handshake token + gate — **`bosses`** (`.faust api bosses [page]` / `boss <name|guid>` — V Blood
+> status board: live position/region/health + up/down/defeated, §B1 below), **`kills`** (`.faust api
+> kills [days]` / `bosskills [days]` — top-killer + boss-defeat leaderboards, §B2), and **`worldscan`**
+> (`.faust api worldscan [spec] [page]` — a filtered map of NPC units + resource nodes, §C1). `[FAUST:access]` grows
+> the non-cost gate tokens `cd=`/`window=`/`period=`/`maxuses=`/`nearprefab=`/`neardist=` so Raphael can
+> display the full gate picture (§15a). **`objectscan` is RETIRED** — dropped from the handshake and the
+> `access` list (§14). Plus the live config editor (chat commands, no wire — see §3b). New in **17** (§11 world coords, additive/omittable, no new
 > token): every `[FAUST:castle]`/`[FAUST:plot]` row gains optional `posx=`/`posz=` (the territory's
 > **centroid world coords** — where on the map it is, §11a), and `[FAUST:hmhead]` gains optional
 > `mapbounds=` (the full buildable-map cell extent for true-scale heat maps, §11b). Also fixed in 0.15.0:
@@ -297,15 +306,118 @@ name/SteamID = that one player. A header line (page 1), then **packed** cell row
   once data exists (changing `CellSize` needs a `.faust admin data wipe heatmap`). Bounded by
   `[Faust.Heatmap] MaxCells`. An empty/disabled grid still sends the header + `count=0` trailer.
 
-### `objectscan` (#5)
-Default **Free / client-side** (BCH reads nearby entities itself). Only implement
-a server command if the admin prices it:
-`.faust api objects <token>` →
+### §B1 `bosses` — V Blood boss status board — IMPLEMENTED (ApiVersion ≥18)
+`.faust api bosses [page]` (the board) and `.faust api boss <name|guid>` (one boss). Own feature key
+`bosses` (AdminOnly default — PvP-sensitive: boss locations are intel). Faust is the authoritative global
+view, so it can report bosses anywhere on the map (the client is spatially culled). A boss is a live world
+entity ONLY while spawned; killed, it despawns and respawns on a timer (no entity between). So two layers:
 ```
-[FAUST:object] guid=<prefab> kind=<resource|container|…> label=<wire_safe> dist=<m> [yield=<…>]
-[FAUST:end] cmd=objects page=1/1
+[FAUST:boss] guid=<int> name=<wire_name> status=<up|down> defeated=<0|1> \
+    [x=<float>] [z=<float>] [region=<wire_name>] [hp=<float>] [hpmax=<float>] [hppct=<int>] [level=<int>]
+…rows (live bosses first, then by name)…
+[FAUST:end] cmd=bosses page=<cur>/<total> count=<n>
 ```
-Chest **contents** only for own/clan containers; never enemy (not replicated).
+- **`status=up`** — a live world entity exists right now: `x`/`z` (world coords, same space as `positions`),
+  `region` (`Wire.Region`, `-` if none), `hp`/`hpmax` (current/max) + `hppct` (0–100), `level` are present.
+- **`status=down`** — NOT placed in the world right now, so the live fields (`x`/`z`/`region`/`hp`/…) are
+  **omitted**. Two sources: (a) a **pooled/staged** VBlood entity that exists but isn't on the map (it parks
+  at the off-map spawn sentinel — Faust now reports these as `down` with no coords instead of the bogus
+  `~10000,10000` limbo position, **Raphael §16 server-side fix, ApiVersion 18**), or (b) a boss a player has
+  defeated (from the unlock store), which carries `defeated=1`. So Raphael no longer needs its ±5000 client
+  guard — `up` rows always carry a real on-map position.
+- **`defeated`** = has ANY player on the server ever killed this V Blood (server-wide, `0|1`); a live boss
+  can be `status=up defeated=1` (up now, beaten before).
+- **`name`** is the prefab dev-name (`CHAR_*_VBlood`); Raphael may prettify by `guid`.
+- **Single `boss <name|guid>` lookup** emits ONE `[FAUST:boss]` with **no** end trailer (commit immediately,
+  like a single `castleinfo`); the `bosses` list emits N rows **followed by** `[FAUST:end] cmd=bosses`. A
+  matched-name-or-guid is required (`<name>` is greedy, so multi-word names like `Solarus the Immaculate`
+  work); no match → `[FAUST:err] code=notfound feature=bosses`. Empty board still sends `count=0`.
+- **Scope:** the board lists placed bosses (`up`) + any pooled/staged boss entities and defeated bosses
+  (`down`). Because the spawn system pre-instantiates pooled VBlood entities, the `down` set often covers
+  much of the boss roster — a placed instance for a given guid always wins over a pooled one. "dead"
+  collapses into `down` (no on-map entity). On-demand; zero passive cost.
+- **§18 (under investigation):** some bosses an admin expects `up` come back `down` — V Rising lazy-spawns
+  many V Bloods, so they exist only as pooled entities (off-map sentinel) until a player triggers their
+  spawn region. A server-side diagnostic `.faust admin bossdiag [name|guid]` now dumps each VBlood entity's
+  position/components to confirm whether it's pooled, mis-thresholded (`MapLimit`), or filtered out — the
+  next step is resolving spawn-region coordinates so pooled bosses still get a map position. No Raphael
+  change; the classification may shift once that lands.
+
+### §B2 `kills` — kill + boss-defeat leaderboards — IMPLEMENTED (ApiVersion ≥18)
+Own feature key `kills` (AdminOnly default). Fed by the existing death hook (no new system), tallied per
+UTC day, so any rolling window is cheap. Both endpoints take `[days=0]` (0 = all-time, else last N UTC days)
++ `[page]`, share the `kills` gate, and are **opt-in collection** via `[Faust.Collection] KillTracking`
+(default on; when off the boards are empty).
+```
+.faust api kills [days=0] [page]
+[FAUST:kill] rank=<n> steam=<id> name=<wire_name> kills=<n> pvp=<n>      ; top players by kills
+[FAUST:end] cmd=kills page=<cur>/<total> count=<n>
+
+.faust api bosskills [days=0] [page]
+[FAUST:bosskill] rank=<n> guid=<int> name=<wire_name> count=<n>          ; V Blood defeat counts
+[FAUST:end] cmd=bosskills page=<cur>/<total> count=<n>
+```
+- `kills` = total units the player killed in the window; `pvp` = of those, kills where the victim was a
+  player. `bosskills` `count` = times that V Blood was defeated server-wide in the window (`name` = prefab
+  dev-name; prettify by `guid`). Rows are descending (rank 1 = top); both paged, empty board → `count=0`.
+- Tally bucketed per UTC day, bounded by `SessionRetentionDays`, persisted to `kills.json` (batched writes:
+  30s autosave + shutdown flush, so a crash loses at most the last interval). Reset with `.faust admin data
+  wipe kills`. *(The "items collected per day" leaderboard half is deferred — the obtain-vs-gather accuracy
+  design; this batch ships kills + boss-defeats only.)*
+
+### §C1 `worldscan` — map of in-game assets (units + resource nodes) — IMPLEMENTED (ApiVersion ≥18)
+A filtered map of **NPC units** and **resource nodes** for an in-game "find/filter assets" map. Own feature
+key `worldscan` (AdminOnly default — economy/PvP-sensitive: it reveals where every ore/NPC and every
+high-quality-blood unit is). Faust is the global view, so it sees the whole map (the client is culled).
+
+`.faust api worldscan [spec] [page]` — `spec` is a **single space-free** comma-joined `key=value` filter
+(same form as the config editor, since VCF 0.10.4 tokenizes on spaces). A bare `units`/`nodes`/`all` is
+shorthand for the kind. Keys:
+- `type` = `units` | `nodes` | `all` (default `all`)
+- `id=<prefabGuid>` — only that prefab
+- `bloodtype=<prefabGuid>` — units whose blood matches (implies units)
+- `bloodqmin=<0-100>` — units with blood quality ≥ this (implies units)
+
+Examples: `worldscan type=nodes,id=<g>` · `worldscan type=units,bloodqmin=80` · `worldscan bloodtype=<g>`.
+```
+[FAUST:asset] guid=<int> name=<wire_name> kind=<unit|node> x=<float> z=<float> region=<wire_name> \
+    [hp=<float> hpmax=<float>] [bloodtype=<wire_name> bloodq=<int>] [unittype=<int>] [restier=<int>]
+…rows…
+[FAUST:note] cmd=worldscan truncated=1 max=<n>          ; ONLY if the scan hit MaxResults (sent before [FAUST:end])
+[FAUST:end] cmd=worldscan page=<cur>/<total> count=<n>
+```
+- **Classification (authoritative):** `kind=node` = a harvestable (`YieldResourcesOnDamageTaken` ores/trees/rocks
+  or `YieldResourcesOnPickup` plants/flowers) — **even though many also have `UnitLevel`/`Health`** (you damage
+  them to harvest), they are always `node`, never `unit`. `kind=unit` = an actual NPC/character (a `CHAR_*`
+  prefab with `UnitLevel` that does **not** yield resources), excluding players + V Bloods. *(Fixed: pre-fix,
+  resource nodes with `UnitLevel` leaked into `units` — now resolved server-side, so `type=units` returns only
+  real NPCs and `type=nodes` returns harvestables.)*
+- `kind=unit` rows carry the unit extras: `hp`/`hpmax` (omitted if the unit has no Health), **`bloodtype`**
+  (blood prefab dev-name, `-` if none) + **`bloodq`** (quality 0–100, `-1` if none), and **`unittype`** =
+  `EntityCategory.UnitCategory` (the NPC subcategory as an int — e.g. human/beast/undead/…; omitted if the
+  unit has no category). `kind=node` rows carry **`restier`** = `EntityCategory.ResourceLevel` (the node's
+  resource tier as an int; omitted if absent) plus guid/name/x/z/region. `x`/`z` are world coords (same space
+  as `positions`); `region` uses the canonical `-` sentinel.
+- **Subcategory filter:** `unittype=<int>` filters units to that `UnitCategory` (implies units). The integer
+  values are the game's `EntityCategory.UnitCategory` enum — run **`.faust admin worldscandiag <fragment>`**
+  on the server to see each prefab's `main`/`unit`/`res` category numbers + Faust's verdict (the authoritative
+  audit against the live prefab database); Raphael can map the ints to labels once confirmed.
+- **Only WHITELISTED prefabs are returned.** The whitelist is admin-curated (seeded comprehensively on first
+  run); manage it server-side with `.faust admin worldscan <list|add|remove|clear|seed> [guid|page]` (chat,
+  not wire). V Bloods are **excluded** (use the `bosses` feature).
+- **Rate limited by a cached snapshot.** The full-map scan runs at most once per `[Faust.WorldScan]
+  ScanIntervalSeconds` (≥5s) server-wide and is reused between — so querying faster just re-filters the cache
+  (no extra scan), and there is zero cost when nobody queries. Bounded by `MaxResults`; on overflow a
+  **`[FAUST:note] … truncated=1`** line precedes the end trailer (so Raphael can warn "filter to see more").
+- Errors: standard gate denies (`noaccess`, `cost`, `cooldown`, …). An empty/over-filtered result still sends
+  `[FAUST:end] cmd=worldscan page=1/1 count=0`.
+
+### `objectscan` (#5) — RETIRED (ApiVersion 18, Raphael §14)
+The client-side nearby-objects scan was removed/banned from Raphael, so `objectscan` is **no longer a
+Faust feature**: it's dropped from the `[FAUST:version]` handshake, the `[FAUST:access]` list, `.faust
+admin status`, and the config (its `Faust.objectscan` section is gone). No client dependency — Raphael
+already ignores the token. (Historical: it was a Free/client-side feature with a never-implemented
+`.faust api objects` server fallback.)
 
 ### `castleresources` (#6) — IMPLEMENTED
 `.faust api resources <here|nearest|tindex> [page]` — admin-default, PvP-sensitive. Sums every
@@ -512,7 +624,9 @@ cooldown gates, so there is **no client→server usage reporting** (no perf cost
 
 `.faust api access [page]` — per-feature access snapshot (one row per feature), paged:
 ```
-[FAUST:access] feature=<name> scope=<off|admin|players> cost=<itemGuid>x<qty> granted=<n> unlocked=<n>
+[FAUST:access] feature=<name> scope=<off|admin|players> cost=<itemGuid>x<qty> \
+    cd=<secs> window=<secs> period=<secs> maxuses=<n> nearprefab=<guid> neardist=<m> \
+    granted=<n> unlocked=<n>
 …rows…
 [FAUST:end] cmd=access page=<cur>/<total> count=<n>
 ```
@@ -520,6 +634,13 @@ cooldown gates, so there is **no client→server usage reporting** (no perf cost
   the handshake). `cost` = `0` (free) or `<itemGuid>x<qty>`. `granted` = players with an explicit admin
   grant for the feature; `unlocked` = tracked players who satisfy its unlock criterion, or **`-1`** when
   the feature has **no** unlock criterion (everyone qualifies — "N/A").
+- **§15a gate tokens (ApiVersion ≥18) — between `cost` and `granted`:** the configured **non-cost** gates,
+  all bare numbers (`0` = unset), so Raphael can display the full per-feature gate picture without a
+  per-feature `get`: `cd` (flat cooldown seconds), `window`/`period`/`maxuses` (the burst-window usage
+  policy — "`maxuses` uses per `period`s, each opening a `window`s grace"), `nearprefab` (proximity object
+  PrefabGUID, `0` = none) + `neardist` (its radius in metres, one decimal). These mirror the
+  `Faust.<feature>` config keys an admin can now also set live via `.faust admin set` (§3b). Older Raphael
+  ignores the unknown tokens.
 
 `.faust api usage [days=7] [page]` — per-feature usage over the last N UTC days (clamped 1–365), paged,
 uses-descending; features with no activity in the window are omitted:
@@ -585,6 +706,87 @@ with any activity in the last N days (clamped 1–90), most-active-first, paged:
 
 ---
 
+## 3b. Admin config editor — live `.cfg` editing (chat commands, NOT wire)
+
+> **New (Faust 0.16.0).** Delivers Raphael's **§15b** ask (`FAUST_API_REQUESTS.md`): every Faust
+> setting is now settable **in-game at runtime**, no `.cfg` edit and no restart. These are admin-only
+> `.faust admin …` **chat commands** — *not* `[FAUST:*]` wire and **not** part of the handshake, so
+> there is **no ApiVersion change**. Raphael drives them exactly like the existing
+> `block`/`schedule`/`grant` controls (inject the command, read the plain-text ack). Writes hit the
+> BepInEx `ConfigEntry` directly, so the change takes effect **immediately** (the gate reads every
+> value live per query) **and** BepInEx persists it to `kdpen.Faust.cfg` (survives restart).
+
+> **⚠️ Syntax changed in 0.16.0 (Raphael §17) — ACTION FOR RAPHAEL.** The earlier space-separated form
+> (`set <feature> <setting> <value> …`) does **not** work: the server's VCF (**0.10.4**) tokenizes the chat
+> line on spaces and matches by exact arg count, with no `[Remainder]`, so `set castleinfo costitem 862477668
+> costqty 100` is rejected with **"Too many parameters: expected 2, got N."** The value list must arrive as a
+> **single space-free token**: `setting=value`, comma-joined for multiples. Raphael must send the new form.
+
+**Per-feature** (`<feature>` = any handshake feature key):
+```
+.faust admin set <feature> <setting=value[,setting=value,...]>   ; one OR MANY settings, NO spaces in the spec
+.faust admin get <feature> [setting]             ; read current value(s) — all, or one (with its valid-range hint)
+.faust admin resetcfg <feature> [setting]        ; restore one setting (or the whole feature block) to default
+```
+- **The spec is ONE comma-separated, space-free argument** of `setting=value` pairs — each validated/applied
+  independently (a bad pair is reported but doesn't block the others), so Raphael pushes a whole panel in one
+  send, e.g. `set castleinfo costitem=862477668,costqty=100,cooldown=30,maxuses=1,period=86400`. A single
+  setting is just `set castleinfo cooldown=30`. **No spaces anywhere in the spec** (Faust values never contain
+  spaces, `,`, or `=`). **Note:** several gates are two-part and only enforce when BOTH halves are set — a
+  **cost** needs `costitem` (≠0) AND `costqty` (>0); a **use limit** needs `period` (>0), with `maxuses`/`window`
+  on top (`maxuses` alone does nothing). Send them together in one spec to avoid a half-configured gate.
+- **`setglobal`** takes the same spec with no feature: `setglobal heatmapenabled=true,heatmapsample=120`.
+- **`adminsexempt`** (default **true**) makes admins skip this feature's cost/cooldown/limit/proximity/PvP —
+  so an admin testing a gate sees it NOT enforced until `adminsexempt off` (or they test as a non-admin).
+
+`<setting>` (aliases in parens) and accepted `<value>`:
+
+| setting | values |
+|---|---|
+| `access` | `Off` \| `AdminOnly` \| `Players` |
+| `delivery` | `ServerMediated` \| `Free` |
+| `costitem` (`costguid`) | item PrefabGUID hash (`0` = free) |
+| `costqty` | integer ≥ 0 |
+| `cooldown` (`cd`) | seconds ≥ 0 |
+| `adminsexempt` (`exempt`) | `on`\|`off` (also true/false, 1/0, yes/no) |
+| `availability` (`pvp`) | `Always` \| `PvEOnly` \| `PvPOnly` |
+| `window` | seconds ≥ 0 (burst window length) |
+| `period` | seconds ≥ 0 (`86400` = daily) |
+| `maxuses` (`max`) | integer ≥ 0 (`0` = unlimited) |
+| `unlock` | `None` \| `FinalBoss` \| `BossKill:<guid>` \| `AllBosses` \| `AllQuests` |
+| `nearprefab` (`near`) | object PrefabGUID (`0` = no proximity gate) |
+| `neardist` (`dist`) | metres ≥ 0 |
+
+**Global** (master / anti-spam / collection / heatmap / map-markers):
+```
+.faust admin setglobal <setting=value[,setting=value,...]>   ; one OR MANY globals, NO spaces in the spec
+.faust admin getglobal [setting]                 ; read global value(s)
+.faust admin resetcfg global [setting]           ; restore global default(s)
+```
+Global `<setting>` keys: `enabled`, `audit`, `verbose`, `ratelimit`, `ratelimitexempt`,
+`resetsteamids`, `sessiontracking`, `concurrencysampling`, `maxconcurrencypoints`,
+`sessionretentiondays`, `datanamespace`, `heatmapenabled`, `heatmapsample` (30–300),
+`heatmapcellsize`, `heatmapmaxcells`, `mapmarkersenabled`, `mapmarkerprefab`.
+
+**Acks (plain System-chat, not tagged — Raphael shows them as the command result):**
+- Success: `Set [<scope>] <setting> = <value>` (`<scope>` = the feature key or `global`); a reserved
+  unlock value adds `  (reserved — admin-grant-only …)`.
+- Rejected value: `Rejected: <reason>` (e.g. the valid range) — the write did **not** happen.
+- Unknown setting: `Unknown setting '<x>'. Settings: <list>`. Unknown feature: `Unknown feature '<x>'. Use one of: <keys>`.
+- `get` with no `setting` returns the feature's/global's settings as `name = value` lines (chunked to
+  stay under the VCF reply cap — see §13-style hazard note below).
+
+> **Relationship to the `[FAUST:access]` row (Raphael §15a — DELIVERED, ApiVersion ≥18):** the editor
+> lets Raphael **set** the gates; the `[FAUST:access]` row now also reports them
+> (`cd`/`window`/`period`/`maxuses`/`nearprefab`/`neardist`, see the `access` section in §3), so Raphael
+> can **display** the full per-feature gate picture from one `access` page — no per-feature `get`
+> round-trip needed (use `.faust admin get <feature> <setting>` only for an ad-hoc single read). Mapping
+> for Raphael's §15b verb inputs onto the editor (one `set` per feature, pairs comma-joined): `cost` →
+> `set <f> costitem=<g>,costqty=<n>`; `cooldown` → `set <f> cooldown=<s>`; `limit` →
+> `set <f> maxuses=<n>,period=<s>,window=<s>`; `near` → `set <f> nearprefab=<g>,neardist=<m>`.
+
+---
+
 ## 4. Paging & errors (shared conventions)
 
 - **Paging is 1-based.** BCH requests page 1, reads `page=cur/total` off
@@ -629,8 +831,6 @@ with any activity in the last N days (clamped 1–90), most-active-first, paged:
   sub-tabs disabled-not-hidden when `access=admin` and the player isn't admin.
 - Per-query **cost display** on buttons (from the handshake map) + handling of
   `[FAUST:err] code=cost|cooldown|noaccess`.
-- #5: read nearby objects **client-side** (reuse `SharedContainerDetector`
-  pattern) when Free; call `.faust api objects` only if the server prices it.
 - #8/#9: chart widgets in the UniverseLib framework consuming the Server-Stats series —
   `playtime`/`concurrency`, the activity-analytics (`hours` + `hoursplayers`, `daily`,
   `newplayers`, `sessions`, `weekdays`, `pdaily`), population rollups, the `players`
@@ -643,6 +843,28 @@ with any activity in the last N days (clamped 1–90), most-active-first, paged:
   (`[FAUST:hmhead]` header + packed `[FAUST:hmrow]` density cells) — per-player and
   server-wide, mapped from cell indices to world space via the header's `cell` size.
   Gate on `api ≥ 16` / the `heatmap` handshake token. (Raphael-side, in progress.)
+- **ApiVersion 18 (Faust 0.16.0) — to build, gate each on `api ≥ 18` / its handshake token:**
+  - **Boss board** (`bosses` token): a **Boss Status** tab/panel consuming `.faust api bosses`
+    (paged `[FAUST:boss]` rows) + a single-boss lookup `.faust api boss <name|guid>` (one `[FAUST:boss]`,
+    no end trailer — disambiguate by the in-flight query, like `castleinfo`). Render `status=up` bosses
+    with location (x/z → reuse the map overlay), region, an **HP bar** (`hppct`, with `hp`/`hpmax` tooltip)
+    and level; render `status=down defeated=1` as a "defeated / not spawned" row (no location). Prettify
+    `name` by `guid`. §B1.
+  - **Kill leaderboards** (`kills` token): two boards — `.faust api kills [days]` (`[FAUST:kill]`: top
+    killers, `kills` + `pvp`) and `.faust api bosskills [days]` (`[FAUST:bosskill]`: per-boss defeat
+    counts). Offer a **today / this week / all-time** toggle (`days=1` / `7` / `0`). Good source for the
+    "interesting server leaderboards" idea. §B2.
+  - **World-asset map** (`worldscan` token): a filterable **asset map/list** consuming `.faust api worldscan`
+    (`[FAUST:asset]` rows). Build filters for type (units/nodes), prefab id, **blood type**, and a **blood
+    quality ≥ N** slider; plot `x`/`z` on the map overlay (reuse the positions overlay) and show blood
+    type/quality on unit pins. Honor the `[FAUST:note] truncated=1` line (warn "filter to see more"). Drive the
+    whitelist from Faust → Admin via `.faust admin worldscan add/remove/list/clear/seed` (chat). Send the
+    filter `spec` as one space-free `key=value,key=value` token (VCF 0.10.4).
+  - **§15a gate display:** the `[FAUST:access]` row now carries `cd`/`window`/`period`/`maxuses`/
+    `nearprefab`/`neardist` — surface them in the Faust → Admin: Oversight table (read-only) alongside cost.
+  - **Live config editor (chat, no wire — §3b):** add cyclers/inputs in Faust → Admin that send
+    `.faust admin set/setglobal/resetcfg …` (mirror the existing block/schedule/grant controls) and read
+    back the plain-text ack. This is how Raphael actually **changes** the gates from the UI.
 
 ---
 
@@ -652,3 +874,45 @@ Whenever Faust changes a `.faust` command, a `[FAUST:*]` reply shape, a config
 key BCH reflects, or the feature set: **bump `api` when the wire grows**, update
 this doc in the same commit, and ping BCH so it can update its reader. BCH gates
 new UI behind `api >= N` so version skew degrades gracefully rather than breaking.
+
+---
+
+## 7. 0.16.0 / ApiVersion 18 — Raphael migration checklist
+
+Everything that changed in this batch, in one place. Gate new UI on `api ≥ 18` / the relevant handshake
+token. Detailed shapes are in the sections referenced.
+
+**🔴 Breaking — Raphael MUST change its sender:**
+- **Config editor syntax (§17 / §3b).** `.faust admin set`/`setglobal` no longer take space-separated
+  `<setting> <value>` args (the server's **VCF 0.10.4** has no `[Remainder]` and matches by exact arg count,
+  so that form errors "Too many parameters"). Send the value list as **one space-free token** of
+  `setting=value` pairs, comma-joined: `set castleinfo costitem=862477668,costqty=100,cooldown=30` /
+  `setglobal heatmapenabled=true`. This is the *only* breaking change.
+
+**🆕 New features to build (each its own handshake token + gate):**
+- **`worldscan`** (§C1) — filterable map of NPC units (+ blood type/quality) and resource nodes; whitelisted,
+  cached/rate-limited. Filter `spec` is the same space-free `key=value,…` token form. See the §5 build notes.
+- **`bosses`** (§B1) and **`kills`** (§B2) — already delivered/consumed; no change beyond §16 below.
+- **Prefab lookup helper (admin chat, no wire):** `.faust admin prefab <id|nameFragment> [page]` → resolves a
+  GUID to its dev-name, or searches the catalog by partial name → `<guid> <name>` rows. Optional but handy —
+  Raphael can add a **"prefab search"** box in the admin UI so admins find GUIDs for the worldscan whitelist /
+  item cost / proximity fields without an external dump. Drive it like the other admin commands (inject,
+  read the plain-text reply lines).
+
+**🟢 Wire additions you can now consume (additive — older Raphael just ignores them):**
+- **`[FAUST:access]` gate tokens (§15a):** `cd`/`window`/`period`/`maxuses`/`nearprefab`/`neardist` between
+  `cost` and `granted` → show the full per-feature gate picture in Admin: Oversight.
+
+**🔧 Server-side fixes — mostly no Raphael change, but note the behavior shifts:**
+- **§13 — `.faust admin data status` works again.** It was throwing server-side (512-byte reply cap), so the
+  "Data status" button got nothing; now chunked. Other admin readouts hardened the same way.
+- **§14 — `objectscan` retired.** Gone from the handshake, `[FAUST:access]`, and `.faust admin status`.
+  Raphael already ignores it.
+- **§16 — boss board no longer emits limbo coords.** Pooled/off-map bosses now report `status=down` with **no**
+  `x`/`z` (instead of the bogus `~10000,10000`). Raphael can **drop its ±5000 client guard** — every `up` row
+  carries a real on-map position.
+- **§18 — boss classification may shift.** Lazy-spawned bosses read `down` until placed; a server-side
+  diagnostic `.faust admin bossdiag` exists to tune this. No wire-shape change.
+- **`clanmembers` / `boss` arg form.** Both take a **single token** now (VCF 0.10.4): send the wire-safe
+  (`_`-encoded) clan name with an optional **separate** `int page` (`clanmembers Blood_Lords 2`), and the boss
+  GUID or wire-safe name for `boss`. (No more packing a page into the name string.)

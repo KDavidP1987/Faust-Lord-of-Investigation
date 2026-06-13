@@ -67,10 +67,39 @@ Admin commands (`[CommandGroup("faust admin")]`, admin-only):
   feature is usable (e.g. `18:00-22:00`); outside it the gate denies `code=schedule`. `clear` removes it.
 - **`.faust admin status [feature]`** — show each feature's **effective** state (config + runtime
   overrides + schedule), so an admin can see exactly what players can do right now.
-- **`.faust admin reload`** — re-read the `.cfg` without a full restart (best-effort).
 
 These mirror "toggle on/off, or a manually-started countdown, or a daily time-of-day window" — all
 three are the same `feature_control.json` state with different expiry semantics.
+
+### Live config editor (in-game `.cfg` editing) — `[done]`
+
+Every static `.cfg` setting is also editable **in-game**, no restart and no `reload` needed. The
+editor (`Config/ConfigEditor.cs`) writes the BepInEx `ConfigEntry` directly: the gate reads every
+`ConfigEntry.Value` live on each query, so the change applies **immediately**, and BepInEx
+auto-persists the write to `BepInEx/config/kdpen.Faust.cfg`, so it also **survives a restart**.
+
+- **`.faust admin set <feature> <setting=value[,setting=value,...]>`** — set one OR many per-feature
+  settings in one command (comma-separated, **no spaces** — the server's VCF 0.10.4 tokenizes on spaces and
+  has no `[Remainder]`, so the whole spec must be a single token). Settings (with aliases): `access`,
+  `delivery`, `costitem`, `costqty`, `cooldown`, `adminsexempt`, `availability` (`pvp`), `window`, `period`,
+  `maxuses`, `unlock`, `nearprefab` (`near`), `neardist` (`dist`).
+  - e.g. `.faust admin set castleresources costitem=-257494203,costqty=100` — charge 100× of an item;
+    `.faust admin set stats period=86400,maxuses=1` — once per day; `.faust admin set castleinfo
+    near=1234567,dist=8` — only usable near that object.
+- **`.faust admin get <feature> [setting]`** — read a feature's current values (all, or one with its
+  valid-value hint).
+- **`.faust admin setglobal <setting=value[,setting=value,...]>`** / **`getglobal [setting]`** — the global block
+  (`enabled`, `audit`, `verbose`, `ratelimit`, `ratelimitexempt`, `resetsteamids`, `sessiontracking`,
+  `concurrencysampling`, `maxconcurrencypoints`, `sessionretentiondays`, `datanamespace`,
+  `heatmapenabled`, `heatmapsample`, `heatmapcellsize`, `heatmapmaxcells`, `mapmarkersenabled`,
+  `mapmarkerprefab`).
+- **`.faust admin resetcfg <feature|global> [setting]`** — restore one setting (or a whole block) to
+  its compiled-in default.
+
+Values are validated before they apply (enums case-insensitive against their allowed set; numbers
+range-checked; `unlock` parsed with the gate's grammar), so a bad value is rejected with the valid
+range rather than written. All edits are logged (`[FAUST CONFIG] steamId=… set …`). This replaces the
+previously-planned best-effort `reload` command — live writes are strictly better than a file re-read.
 
 ## 4. Gate evaluation order (target)
 

@@ -31,6 +31,8 @@ internal static class Core
     public static CastleService Castle { get; private set; }
     public static PlayerInfoService PlayerInfo { get; private set; }
     public static ClanService Clan { get; private set; }
+    public static BossService Boss { get; private set; }
+    public static WorldScanService WorldScan { get; private set; }
     public static MapMarkerService MapMarkers { get; private set; }
 
     // ---- Persistence; created at Plugin.Load (no ECS dependency) so it captures connect events
@@ -41,6 +43,7 @@ internal static class Core
     public static UsageStatsService UsageStats { get; private set; }
     public static FeatureControlService Control { get; private set; }
     public static UnlockService Unlock { get; private set; }
+    public static KillTrackingService Kills { get; private set; }
 
     public static ManualLogSource Log => Plugin.PluginLog;
     public static bool IsReady { get; private set; }
@@ -60,6 +63,8 @@ internal static class Core
         Control.Load();
         Unlock = new UnlockService();
         Unlock.Load();
+        Kills = new KillTrackingService();
+        Kills.Load();
     }
 
     static bool _initInProgress;
@@ -101,6 +106,9 @@ internal static class Core
             Castle = new CastleService();
             PlayerInfo = new PlayerInfoService();
             Clan = new ClanService();
+            Boss = new BossService();
+            WorldScan = new WorldScanService();
+            WorldScan.Load(); // loads the asset whitelist (seeds a comprehensive default on first run)
             MapMarkers = new MapMarkerService();
 
             IsReady = true;
@@ -110,6 +118,7 @@ internal static class Core
             // driven: the server's Unity loop ticks coroutines every frame, so a WaitForSeconds loop is a
             // reliable timer (the proven Bloodcraft pattern). No-op work inside until heat-map is enabled.
             HeatmapSampler.Start();
+            StartCoroutine(KillAutosaveLoop());
         }
         catch (System.Exception ex)
         {
@@ -152,4 +161,18 @@ internal static class Core
     /// <summary>Run a managed coroutine on the server's main thread (wrapped for Il2Cpp).</summary>
     public static Coroutine StartCoroutine(IEnumerator routine) =>
         MonoBehaviour.StartCoroutine(routine.WrapToIl2Cpp());
+
+    /// <summary>Batch-write the kill tally periodically — kills are high-frequency, so the hook only
+    /// touches memory and this flushes accumulated changes to disk every 30s (a crash loses at most the
+    /// last interval). A final flush also runs at plugin unload (see Plugin.Unload).</summary>
+    static IEnumerator KillAutosaveLoop()
+    {
+        var wait = new WaitForSeconds(30f);
+        while (true)
+        {
+            yield return wait;
+            try { Kills?.Flush(); }
+            catch (System.Exception ex) { Log.LogError($"[FAUST KILLS] autosave failed: {ex.Message}"); }
+        }
+    }
 }

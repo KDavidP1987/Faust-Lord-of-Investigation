@@ -55,17 +55,29 @@ namespace Faust.Commands;
 /// `posx=`/`posz=` (the territory's centroid world coords — where on the map it is, §11a), and the
 /// `[FAUST:hmhead]` header gains optional `mapbounds=` (the full buildable-map cell extent, so a sparse
 /// heat map can be drawn at true map scale, §11b). Both additive/omittable.
+///
+/// ApiVersion 18 (0.16.0 — admin gates + bosses + kills): `[FAUST:access]` grows the non-cost gate
+/// tokens `cd=`/`window=`/`period=`/`maxuses=`/`nearprefab=`/`neardist=` so Raphael can DISPLAY the full
+/// per-feature gate picture (Raphael §15a); `objectscan` is RETIRED from the handshake + access list
+/// (its client scan was removed — Raphael §14). Two new features, each its own handshake token + gate:
+/// **`bosses`** (`.faust api bosses [page]` / `boss <name>` — VBlood status: position/region/health +
+/// up/down/defeated) and the **`kills`** leaderboards (`.faust api kills [page]` / `bosskills [days]` —
+/// from a new death-hook tally; opt-in collector `[Faust.Collection] KillTracking`). Also new:
+/// **`worldscan`** (`.faust api worldscan [type=…,id=…,bloodtype=…,bloodqmin=…] [page]`) — a filtered map of
+/// NPC units (with blood type/quality) + resource nodes (ores/trees/plants), from an admin-curated prefab
+/// whitelist (`.faust admin worldscan …`), cached + rate-limited via `[Faust.WorldScan] ScanIntervalSeconds`.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 17;
+    const int ApiVersion = 18;
 
     static readonly string[] FeatureOrder =
     {
         Settings.PlayerPositions, Settings.CastleInfo, Settings.PlayerInfo,
-        Settings.PlotAvailability, Settings.ObjectScan, Settings.CastleResources, Settings.Stats,
+        Settings.PlotAvailability, Settings.CastleResources, Settings.Stats,
         Settings.AllCastles, Settings.DecayWatch, Settings.Clans, Settings.Heatmap,
+        Settings.Bosses, Settings.Kills, Settings.WorldScan,
     };
 
     // ---- Foundation: handshake + probe ----
@@ -452,22 +464,15 @@ internal static class ApiCommands
     // ---- §8c Clan members: one clan's roster (under the clans gate) ----
 
     [Command("clanmembers", description: "BCH: a clan's member roster (paged). Usage: .faust api clanmembers <clanName> [page]")]
-    public static void ClanMembers(ChatCommandContext ctx, string clanName)
+    public static void ClanMembers(ChatCommandContext ctx, string clanName, int page = 1)
     {
         var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Clans);
         if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
 
-        // VCF binds the LAST string parameter greedily (the whole remainder), so a clan name with SPACES
-        // (e.g. "Blood Lords") arrives intact here — but an `int page` parameter after it would have stolen
-        // the first word as the name and failed to bind the rest (the old bug: VCF rejected the call before
-        // any reply, so BCH saw "no response"). We take the greedy name and recover an optional trailing
-        // page number ourselves. GetClanMembers matches the raw name OR its Wire.Safe (`_`-encoded) form.
-        int page = 1;
+        // VCF 0.10.4 tokenizes on spaces and has no [Remainder], so a clan name with spaces can't arrive as
+        // one token — Raphael sends the **wire-safe** (`_`-encoded) name, a single token, with an optional
+        // int page after it (clean 2-arg form). GetClanMembers matches the raw name OR its Wire.Safe form.
         string name = (clanName ?? string.Empty).Trim();
-        int sp = name.LastIndexOf(' ');
-        if (sp > 0 && int.TryParse(name.Substring(sp + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) && p > 0)
-        { page = p; name = name.Substring(0, sp).TrimEnd(); }
-
         var members = Core.Clan.GetClanMembers(name);
         if (members is null) { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Clans}"); return; }
 
@@ -500,7 +505,14 @@ internal static class ApiCommands
                 _ => "off",
             };
             string cost = f.HasCost ? $"{f.CostItemGuid.Value}x{f.CostQuantity.Value}" : "0";
+            // §15a (ApiVersion ≥18): report the non-cost gates so Raphael can DISPLAY the full picture
+            // (it already shows cost). All bare numbers; 0 = unset. neardist is invariant-formatted.
+            string near = f.HasProximity
+                ? $"{f.RequireNearPrefab.Value} neardist={f.RequireNearDistance.Value.ToString("0.#", CultureInfo.InvariantCulture)}"
+                : "0 neardist=0";
             rows.Add($"[FAUST:access] feature={key} scope={scope} cost={cost} " +
+                     $"cd={f.CooldownSeconds.Value} window={f.WindowSeconds.Value} period={f.PeriodSeconds.Value} " +
+                     $"maxuses={f.MaxUsesPerPeriod.Value} nearprefab={near} " +
                      $"granted={Core.Unlock.GrantedCount(key)} unlocked={Core.Unlock.UnlockedCount(f)}");
         }
         if (Wire.SendPage(ctx, "access", rows, page)) FaustAccessGate.Commit(ctx, gate);
@@ -596,6 +608,170 @@ internal static class ApiCommands
 
         if (Wire.SendPage(ctx, "positions", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
+
+    // ---- V Blood boss status board (ApiVersion ≥18) ----
+
+    [Command("bosses", description: "BCH: V Blood boss status board (paged). Usage: .faust api bosses [page]")]
+    public static void Bosses(ChatCommandContext ctx, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Bosses);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var bosses = Core.Boss.GetBosses();
+        var rows = new List<string>(bosses.Count);
+        foreach (var b in bosses) rows.Add(BossRow(b));
+
+        // Always commit: "no bosses currently spawned and none defeated yet" is a valid, real answer.
+        Wire.SendPage(ctx, "bosses", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    [Command("boss", description: "BCH: one V Blood boss by name or GUID. Usage: .faust api boss <name|guid>")]
+    public static void Boss(ChatCommandContext ctx, string nameOrGuid)
+    {
+        // Single token (VCF 0.10.4 has no [Remainder] + matches by exact arg count): Raphael sends the
+        // prefab GUID or the wire-safe (`_`-joined) boss name — both single tokens. TryGetBoss also does a
+        // case-insensitive substring match, so a one-word fragment (e.g. "Wolf") resolves too.
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Bosses);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        if (!Core.Boss.TryGetBoss(nameOrGuid?.Trim(), out var b))
+        { ctx.Reply($"[FAUST:err] code=notfound feature={Settings.Bosses}"); return; }
+
+        ctx.Reply(BossRow(b));          // single row, no end trailer (BCH disambiguates by the in-flight query)
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    /// <summary>One [FAUST:boss] wire row. Position/region/health/level are emitted ONLY when the boss is
+    /// alive (a live entity); a not-spawned boss carries status=down + defeated and omits the live fields.</summary>
+    static string BossRow(BossService.BossSnapshot b)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"[FAUST:boss] guid={b.Guid} name={Wire.Safe(b.Name)} ")
+          .Append($"status={(b.Alive ? "up" : "down")} defeated={(b.Defeated ? 1 : 0)}");
+        if (b.Alive)
+        {
+            int pct = b.HpMax > 0 ? (int)System.Math.Round(b.Hp / b.HpMax * 100f) : 0;
+            sb.Append($" x={F(b.X)} z={F(b.Z)} region={Wire.Region(b.Region)} ")
+              .Append($"hp={F(b.Hp)} hpmax={F(b.HpMax)} hppct={pct} level={b.Level}");
+        }
+        return sb.ToString();
+    }
+
+    // ---- Kill leaderboards (ApiVersion ≥18) ----
+
+    [Command("kills", description: "BCH: top players by kills (paged). Usage: .faust api kills [days=0] [page] (days 0 = all-time)")]
+    public static void Kills(ChatCommandContext ctx, int days = 0, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Kills);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var board = Core.Kills.GetTopKillers(days);
+        var rows = new List<string>(board.Count);
+        for (int i = 0; i < board.Count; i++)
+        {
+            var r = board[i];
+            rows.Add($"[FAUST:kill] rank={i + 1} steam={r.Steam} name={Wire.Safe(Core.Store.GetName(r.Steam))} " +
+                     $"kills={r.Kills} pvp={r.Pvp}");
+        }
+        // Always commit: an empty board (tracking on but nobody's killed yet) is a valid answer.
+        Wire.SendPage(ctx, "kills", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    [Command("bosskills", description: "BCH: V Blood defeat counts (paged). Usage: .faust api bosskills [days=0] [page] (days 0 = all-time)")]
+    public static void BossKills(ChatCommandContext ctx, int days = 0, int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Kills);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var board = Core.Kills.GetBossKills(days);
+        var rows = new List<string>(board.Count);
+        for (int i = 0; i < board.Count; i++)
+        {
+            var r = board[i];
+            rows.Add($"[FAUST:bosskill] rank={i + 1} guid={r.Guid} " +
+                     $"name={Wire.Safe(new Stunlock.Core.PrefabGUID(r.Guid).GetPrefabName())} count={r.Count}");
+        }
+        Wire.SendPage(ctx, "bosskills", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    // ---- World-asset scan (map of NPC units + resource nodes; ApiVersion ≥18) ----
+
+    [Command("worldscan", description: "BCH: map assets (units + resource nodes), filtered. Usage: .faust api worldscan [type=units|nodes|all,id=<g>,bloodtype=<g>,bloodqmin=<0-100>] [page]")]
+    public static void WorldScan(ChatCommandContext ctx, string spec = "all", int page = 1)
+    {
+        var gate = FaustAccessGate.TryAuthorize(ctx, Settings.WorldScan);
+        if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+
+        var filter = ParseScanFilter(spec);
+        var assets = Core.WorldScan.GetAssets(filter, out bool truncated);
+        var rows = new List<string>(assets.Count);
+        foreach (var a in assets)
+        {
+            var sb = new StringBuilder();
+            sb.Append($"[FAUST:asset] guid={a.Guid} name={Wire.Safe(a.Name)} kind={(a.IsUnit ? "unit" : "node")} ")
+              .Append($"x={F(a.X)} z={F(a.Z)} region={Wire.Region(a.Region)}");
+            if (a.IsUnit)
+            {
+                if (a.HpMax > 0) sb.Append($" hp={F(a.Hp)} hpmax={F(a.HpMax)}");
+                sb.Append($" bloodtype={Wire.Safe(a.BloodType)} bloodq={a.BloodQuality}");
+                if (a.UnitCategory != -1) sb.Append($" unittype={a.UnitCategory}");
+            }
+            else if (a.ResourceTier != -1)
+            {
+                sb.Append($" restier={a.ResourceTier}");
+            }
+            rows.Add(sb.ToString());
+        }
+
+        if (truncated)
+            ctx.Reply($"[FAUST:note] cmd=worldscan truncated=1 max={Settings.WorldScanMaxResults.Value}");
+        // Always commit: an empty/over-filtered result is still a valid answer.
+        Wire.SendPage(ctx, "worldscan", rows, page);
+        FaustAccessGate.Commit(ctx, gate);
+    }
+
+    /// <summary>Parse the worldscan filter spec — a single no-space token of comma-separated key=value
+    /// pairs (VCF 0.10.4 form), e.g. `type=units,bloodqmin=60`. A bare `units`/`nodes`/`all` is shorthand
+    /// for the kind. Unknown tokens are ignored (default = everything).</summary>
+    static WorldScanService.Filter ParseScanFilter(string spec)
+    {
+        string kind = "all"; int id = 0, bt = 0, bqmin = -1, unittype = int.MinValue;
+        foreach (var tok in (spec ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int eq = tok.IndexOf('=');
+            if (eq < 0)
+            {
+                kind = NormalizeKind(tok, kind);
+                continue;
+            }
+            string k = tok.Substring(0, eq).Trim().ToLowerInvariant();
+            string v = tok.Substring(eq + 1).Trim();
+            switch (k)
+            {
+                case "type": case "kind": kind = NormalizeKind(v, kind); break;
+                case "id": int.TryParse(v, out id); break;
+                case "bloodtype": case "bt": int.TryParse(v, out bt); break;
+                case "bloodqmin": case "bloodq": case "quality":
+                    if (int.TryParse(v, out var q)) bqmin = System.Math.Clamp(q, 0, 100);
+                    break;
+                case "unittype": case "unitcat": case "category":
+                    int.TryParse(v, out unittype);
+                    break;
+            }
+        }
+        return new WorldScanService.Filter { Kind = kind, Id = id, BloodType = bt, BloodQMin = bqmin, UnitType = unittype };
+    }
+
+    static string NormalizeKind(string v, string fallback) => v.ToLowerInvariant() switch
+    {
+        "unit" or "units" or "npc" or "npcs" => "units",
+        "node" or "nodes" or "resource" or "resources" => "nodes",
+        "all" or "any" or "*" => "all",
+        _ => fallback,
+    };
 
     // ---- Player-position heat map (density grid; per-player or server-wide) ----
 

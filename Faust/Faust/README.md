@@ -230,6 +230,9 @@ driven by the BloodCraftHub UI, but each works from chat too.
 | `.faust api sessions timeline <all\|player> [days] [page]` | Individual online sessions (start/end) for a per-player activity timeline |
 | `.faust api clans [page]` | Clan composition — clanned vs independent + per-clan roster (size, online, castles, leader) *(admin-default)* |
 | `.faust api clanmembers <clan> [page]` | One clan's member roster — who's online, who leads *(admin-default)* |
+| `.faust api bosses [page]` · `boss <name>` | V Blood status board — which bosses are up, **where (X,Z + region)**, their **health**, level, and whether they've been defeated *(admin-default)* |
+| `.faust api kills [days]` · `bosskills [days]` | Leaderboards: top players by kills (+PvP), and how many times each boss has been defeated (today / week / all-time) *(admin-default)* |
+| `.faust api worldscan [type=units\|nodes,id=,bloodtype=,bloodqmin=]` | Map of NPC units (with **blood type/quality**) + resource nodes (ores/trees/plants), filterable — for an in-game "find items on the map" tool. Whitelisted + rate-limited *(admin-default)* |
 | `.faust api access [page]` | Per-feature access snapshot — who can use each Faust feature + price + granted/unlocked counts *(admin-default)* |
 | `.faust api usage [days] [page]` | Per-feature usage over the last N days — uses, distinct payers, items spent, cooldown hits *(admin-default)* |
 | `.faust api version` | BloodCraftHub handshake — each feature's access + price (machine-readable) |
@@ -242,8 +245,9 @@ cost, and cooldown (config below); an empty or not-found lookup is never charged
 
 ## Configuration
 
-`BepInEx/config/kdpen.Faust.cfg` — a global block plus one block per feature. Config changes take
-effect on server restart.
+`BepInEx/config/kdpen.Faust.cfg` — a global block plus one block per feature. You can edit the file
+(changes load on restart), **or change any setting live in-game** with `.faust admin set …` /
+`setglobal …` (see *Live admin controls* below) — those apply immediately and are written back to the file.
 
 | Section | Key | Default | Effect |
 |---|---|---|---|
@@ -263,8 +267,8 @@ effect on server restart.
 | Faust.\<feature\> | AdminsExempt | `true` | Admins skip access / PvP / proximity / cost / cooldown / window / unlock |
 
 Features (`<feature>`): `playerpositions`, `castleinfo`, `playerinfo`, `plotavailability`,
-`allcastles`, `decaywatch`, `objectscan`, `castleresources`, `stats`, `clans`, `heatmap`. **Every feature
-defaults to AdminOnly** — Faust is an admin tool first; open up whichever ones you want to share, per server.
+`allcastles`, `decaywatch`, `castleresources`, `stats`, `clans`, `heatmap`, `bosses`, `kills`, `worldscan`.
+**Every feature defaults to AdminOnly** — Faust is an admin tool first; open up whichever ones you want to share, per server.
 
 ### Collection controls — what Faust gathers in the background
 
@@ -276,6 +280,7 @@ session/population history accumulates over time, and you can bound or switch it
 |---|---|---|---|
 | Faust.Collection | SessionTracking | `true` | Log connect/disconnect over time. **Off** ⇒ no history: playtime / sessions / frequency / peak-hour and the playtime leaderboard report "not tracked" |
 | Faust.Collection | ConcurrencySampling | `true` | Sample the online-player count (powers the population graph). Independent of SessionTracking |
+| Faust.Collection | KillTracking | `true` | Tally kills + boss defeats over time (powers `.faust api kills` / `bosskills`). Event-driven (no idle cost), bucketed per day, bounded by SessionRetentionDays. **Off** ⇒ leaderboards return empty |
 | Faust.Collection | MaxConcurrencyPoints | `4000` | Cap on stored population samples (oldest trimmed); bounds memory + file size. `0` disables sampling |
 | Faust.Collection | SessionRetentionDays | `0` | Auto-prune sessions older than N days (`0` = keep forever) — bound long-term growth on busy/long-lived servers |
 | Faust.Collection | DataNamespace | *(empty)* | Empty = one shared dataset (kept across world wipes). Set a per-world name (e.g. `season3`) to keep each world's data separate |
@@ -283,6 +288,8 @@ session/population history accumulates over time, and you can bound or switch it
 | Faust.Heatmap | SampleSeconds | `60` | How often to snapshot online positions (clamped **30–300** — every 30s to 5 min) |
 | Faust.Heatmap | CellSize | `25` | Grid resolution (world units per cell). Fixed once data exists — wipe the heat map before changing it |
 | Faust.Heatmap | MaxCells | `250000` | Cap on stored (player, cell) entries (bounds memory/disk); existing cells keep counting past the cap |
+| Faust.WorldScan | ScanIntervalSeconds | `10` | How often `.faust api worldscan` may rebuild its map snapshot (cached + reused between; the de-facto rate limit). Clamped to **≥5s**. On-demand only — zero idle cost |
+| Faust.WorldScan | MaxResults | `2000` | Hard cap on assets per scan (bounds snapshot + wire size). Over the cap → stops + logs a warning. Filter the query to see specific things |
 
 Faust's data is stored in `BepInEx/config/Faust/` — **on the server, not in the world save — so it
 survives a world wipe.** That's deliberate: the same players return, so their playtime/stats stay
@@ -298,11 +305,16 @@ Admins can override features at runtime — these persist across restarts:
 | `.faust admin unblock <feature\|all>` | Clear a block / countdown |
 | `.faust admin schedule <feature\|all> <HH:MM-HH:MM\|clear>` | Only allow use within a daily time window (server local time) |
 | `.faust admin status [feature]` | Show each feature's effective block/schedule state |
+| `.faust admin set <feature> <setting=value[,...]>` · `get <feature> [setting]` | Change/read any per-feature setting live (access, cost, cooldown, use-limit, PvP, unlock, proximity…). One or many pairs, comma-joined, no spaces (e.g. `costitem=12345,costqty=1`). Applies instantly + saved to the config |
+| `.faust admin setglobal <setting=value[,...]>` · `getglobal [setting]` | Change/read any global setting (master switch, rate limit, collection, heat map…) |
+| `.faust admin resetcfg <feature\|global> [setting]` | Restore a setting (or a whole block) to its default |
+| `.faust admin worldscan <list\|add\|remove\|clear\|seed> [guid\|page]` | Curate the world-scan asset whitelist — what units/nodes the map shows (seeded comprehensively on first run; `seed` re-adds the full catalog) |
+| `.faust admin prefab <id\|nameFragment> [page]` | Look up a prefab's name from its ID, or search the catalog by (partial) name → `<id> <name>` — find GUIDs for whitelist/cost/proximity without leaving the game |
 | `.faust admin grant\|revoke <player> <feature>` | Hand-unlock / re-lock a feature for a player (overrides its `Unlock` criterion) |
 | `.faust admin unlocks <player>` | Show a player's V-blood defeats + granted features |
 | `.faust admin data status` | Footprint of collected data (counts, oldest record, disk size, namespace, retention) |
 | `.faust admin data clear <days>` | Prune activity (sessions + population) older than N days, on demand |
-| `.faust admin data wipe <activity\|unlocks\|usage\|heatmap\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts, `heatmap` to clear the density map (`confirm` required) |
+| `.faust admin data wipe <activity\|unlocks\|usage\|heatmap\|kills\|all> confirm` | Reset a store — `unlocks` for a fresh world, `activity` to reset playtime/charts, `heatmap` to clear the density map, `kills` to reset the leaderboards (`confirm` required) |
 | `.faust admin showpositions <on\|off\|status>` | *Experimental* — put online players on the native in-game map (off by default; verify admin-only visibility on a test server first) |
 
 A feature can also require a **progression unlock** before players may use it — set

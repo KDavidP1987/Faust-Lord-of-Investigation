@@ -7,6 +7,63 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.16.0] - 2026-06-12
+
+In-game configuration, two new investigation features, and the open Raphael server-side items. **ApiVersion
+→ 18.** Mirrored into `docs/BCH_INTEGRATION_CONTRACT.md`.
+
+### Added
+- **Live config editor (in-game `.cfg` editing).** Every Faust setting is now settable at runtime with no
+  restart and no reload: `.faust admin set <feature> <setting=value[,setting=value,...]>` (one or many
+  pairs, comma-joined, no spaces) / `get <feature> [setting]`, `.faust admin setglobal <setting=value,...>` /
+  `getglobal [setting]`, and `.faust admin resetcfg <feature|global> [setting]`. Writes the BepInEx
+  `ConfigEntry` directly, so changes take effect
+  immediately (the gate reads every value live) **and** persist to `kdpen.Faust.cfg`. Per-feature settings:
+  access, delivery, cost (item+qty), cooldown, window/period/maxuses, availability (PvP), unlock,
+  proximity (nearprefab+neardist), adminsexempt; plus the full global block. Values are validated before
+  they apply. Delivers Raphael **§15b**. (`Config/ConfigEditor.cs`.)
+- **V Blood boss status board** (new `bosses` feature/handshake token, AdminOnly default — PvP-sensitive).
+  `.faust api bosses [page]` and `.faust api boss <name|guid>` report each boss Faust can see: live bosses
+  carry **position (x/z), region, current/max health + hp%, level, status=up**; bosses a player has defeated
+  but that aren't currently spawned carry **status=down defeated=1**. Live world entities only (a boss has no
+  entity while on its respawn timer); on-demand, zero passive cost. (`Services/BossService.cs`.)
+- **Kill leaderboards** (new `kills` feature/handshake token, AdminOnly default). `.faust api kills [days=0]`
+  (top players by kills, +PvP) and `.faust api bosskills [days=0]` (V Blood defeat counts) — `days 0` =
+  all-time, else a rolling UTC-day window. Fed from the existing death hook (no new system), bucketed per
+  UTC day, batched to disk (30s autosave + shutdown flush). A new **passive collector**: opt-out via
+  `[Faust.Collection] KillTracking` (default on) and bounded by `SessionRetentionDays`; reset with
+  `.faust admin data wipe kills`. (`Services/KillTrackingService.cs`.)
+- **World-asset scan** (new `worldscan` feature/handshake token, AdminOnly default). `.faust api worldscan
+  [type=units|nodes,id=<g>,bloodtype=<g>,bloodqmin=<0-100>] [page]` returns a filtered map of **NPC units**
+  (with blood type + quality + health + position/region) and **resource nodes** (ores/trees/plants via
+  `YieldResourcesOnDamageTaken`/`OnPickup`), for an in-game "find/filter assets" map. **Classification is
+  authoritative:** anything that yields resources is a `node` even though many also carry `UnitLevel`/`Health`
+  (so trees/plants no longer leak into `units`); a `unit` is a `CHAR_*` NPC that doesn't yield resources
+  (players + V Bloods excluded). Rows now also carry the game's `EntityCategory` **subcategory** — `unittype`
+  (UnitCategory) on units (filterable via `unittype=<int>`) and `restier` (ResourceLevel) on nodes. New
+  audit command **`.faust admin worldscandiag <nameFragment>`** dumps each prefab's category numbers +
+  component flags + Faust's verdict, to validate categorization against the live prefab database. Only admin-**whitelisted**
+  prefabs are returned (seeded comprehensively on first run; managed live with `.faust admin worldscan
+  list|add|remove|clear|seed`). The full-map scan is **cached + rate-limited** — it rebuilds at most once per
+  `[Faust.WorldScan] ScanIntervalSeconds` (≥5s) server-wide, strictly on-demand (zero idle cost), bounded by
+  `MaxResults`. V Bloods are excluded (they have the `bosses` feature). (`Services/WorldScanService.cs`.)
+- **In-game prefab lookup.** `.faust admin prefab <id|nameFragment> [page]` resolves a PrefabGUID → dev-name,
+  or searches the prefab catalog by (partial) name → matching `<guid> <name>` rows (paged). No more leaving
+  the game to consult an external dump when setting up worldscan whitelist / item cost / proximity GUIDs.
+  (`Services/PrefabLookup.cs`.)
+- **§15a — full gate picture on `[FAUST:access]`.** The access row now reports the non-cost gates
+  (`cd`/`window`/`period`/`maxuses`/`nearprefab`/`neardist`) so Raphael can display them, not just cost.
+
+### Fixed
+- **§13 — `.faust admin data status` no longer throws on populated servers.** The footprint readout built a
+  single multi-line reply that overflowed VCF's 512-byte `FixedString512Bytes` (an `ArgumentException`, so no
+  reply reached the client). It now sends one reply per line; `admin status` was hardened the same way.
+
+### Changed
+- **§14 — `objectscan` retired.** The client-side nearby-objects scan was removed/banned, so `objectscan` no
+  longer appears in the `[FAUST:version]` handshake, the `[FAUST:access]` list, `.faust admin status`, or the
+  config (its config section is dropped). No client dependency — Raphael already ignores the token.
+
 ## [0.15.0] - 2026-06-11
 
 Two Raphael tester batches from v0.50.0 plus a new **player-position heat map**, all additive. The Raphael

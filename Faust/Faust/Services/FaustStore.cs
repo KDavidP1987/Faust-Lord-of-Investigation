@@ -841,6 +841,10 @@ internal sealed class FaustStore
 
     public int OnlineCount => _online.Count;
 
+    /// <summary>Last-known character name for a SteamID (falls back to the bare id). Shared by other
+    /// services that report player leaderboards for offline players (e.g. the kills board).</summary>
+    public string GetName(ulong steam) => _names.TryGetValue(steam, out var n) && !string.IsNullOrEmpty(n) ? n : steam.ToString();
+
     // ---- admin data management (manual status / clear / wipe; design: collection control §10) ----
 
     /// <summary>Footprint of the collected activity, for the <c>.faust admin data status</c> readout.</summary>

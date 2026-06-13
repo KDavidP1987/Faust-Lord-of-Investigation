@@ -49,11 +49,19 @@ series (`stats regiondaily`), a castle **fill-%** denominator (`plots` on `stats
 playtime + castles on the new-players roster; and a **player-position heat map** (`heatmap`, ApiVersion 16)
 — an opt-in timed sampler that bins online positions into a grid for **per-player and server-wide
 density maps** (Raphael renders the heat map). 0.6.0 added
-**`castleresources` (#6)**. The persistence, admin-control, and resource paths compile clean but are
-**pending a live in-game pass** (the 0.14.0/0.15.0 tester-batch reads + the heat-map sampler especially). Remaining: `AllBosses`/`AllQuests` unlock auto-detection, and
-`objectscan` (#5) — which the design keeps client-side (BloodCraftHub reads nearby entities; server
-only if an admin prices it). See [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §9 for the roadmap of
-candidate features (clan info, server status, kills leaderboard, soul-shard tracker, …).
+**`castleresources` (#6)**. **0.16.0** adds the **in-game config editor** (`.faust admin set/get/setglobal/
+getglobal/resetcfg` — change any setting live, persisted, no restart), a **V Blood boss status board**
+(`bosses` — live boss position/region/health + up/down/defeated), **kill leaderboards** (`kills` /
+`bosskills`, fed by the death hook), and a **world-asset scan** (`worldscan` — a filterable map of NPC units
+with blood type/quality + resource nodes from an admin-curated whitelist, cached + rate-limited), plus the
+open Raphael server-side items: the `data status` 512-byte
+overflow fix (§13), retiring `objectscan` (§14), and the full gate picture on `[FAUST:access]` (§15a).
+**ApiVersion → 18.** The persistence, admin-control, boss, and kill paths compile clean but are
+**pending a live in-game pass** (the 0.14.0–0.16.0 tester-batch reads, the heat-map sampler, and the boss
+roster / un-spawned boss coords especially). Remaining: `AllBosses`/`AllQuests` unlock auto-detection, the
+daily **item-collection** leaderboard half (deferred — the noisy/gather-accuracy design), and a full boss
+roster for not-yet-defeated, not-spawned bosses. See [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §9 for
+the roadmap of candidate features.
 
 **Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
 the primary channel; written-up GitHub issues are welcome too.
@@ -113,7 +121,10 @@ Admins control Faust on **two independent axes**:
 | 1 | Online player positions (with region) | AdminOnly | ✅ `positions` (map rendering is BCH-side) |
 | 1 | Player-position heat map (per-player + server-wide density grid) | AdminOnly | ✅ `heatmap` (opt-in timed sampler → binned grid; Raphael renders) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
-| 8 | Server stats (playtime leaderboard, concurrency series) | AdminOnly | ✅ `stats` (`kills`/`resources` leaderboards TBD) |
+| 8 | Server stats (playtime leaderboard, concurrency series) | AdminOnly | ✅ `stats` |
+| — | **V Blood boss status board** (live position/region/health + up/down/defeated) | AdminOnly | ✅ `bosses` / `boss <name>` (`BossService`; live entities — un-spawned roster TBD) |
+| 8 | **Kill leaderboards** (top killers +PvP; per-boss defeat counts) | AdminOnly | ✅ `kills` / `bosskills` (death-hook tally; `[Faust.Collection] KillTracking`) |
+| 5 | **World-asset scan** (map of NPC units +blood, ores/trees/plants; filterable) | AdminOnly | ✅ `worldscan` (whitelisted; cached + rate-limited scan; `WorldScanService`) |
 | 8 | Activity analytics (hour-of-day, weekday, daily DAU/minutes, new-players, session-length, per-player daily) | AdminOnly | ✅ `stats hours\|weekdays\|daily\|newplayers\|sessions\|pdaily` (Raphael charts) |
 | 8 | Population health (DAU/WAU/MAU + retention, recency, concurrency peak/avg, region distribution + buildable plots) | AdminOnly | ✅ `stats population\|recency\|peak\|regions` (+ `plots` fill-% denominator) + `pinfo daysidle` |
 | 8 | Player-activity roster (per-player active-today/week, last-seen, sessions, playtime, idle) | AdminOnly | ✅ `stats players` (Raphael §7) |
@@ -121,7 +132,7 @@ Admins control Faust on **two independent axes**:
 | 8 | Region time-series + roster extras (per-day per-region castles/plots/players; roster playtime + castles) | AdminOnly | ✅ `stats regiondaily` / `nprow` `playmins`+`castles` / `region` `plots` (Raphael §10) |
 | — | Clan composition (clanned vs independent + per-clan roster, incl. castles held) | AdminOnly | ✅ `clans` (`ClanService`) |
 | — | Native-map player markers (admin) | AdminOnly | 🚧 `showpositions` — experimental (real `AttachMapIconsToEntity` attach), off by default; admin-only visibility pending live tuning |
-| 5 | Nearby object scan | AdminOnly (Free) | client-side by design — server only if priced |
+| 5 | Nearby object scan | — | ❌ retired 0.16.0 (client scan removed; Raphael §14) |
 | 9 | Visual graphs | — | rendered client-side in BloodCraftHub |
 
 *"Default access" is the **recommended starting point** — every value is admin-configurable per

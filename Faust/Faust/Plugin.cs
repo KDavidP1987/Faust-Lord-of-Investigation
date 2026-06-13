@@ -44,6 +44,7 @@ public class Plugin : BasePlugin
         Core.MapMarkers?.Shutdown();  // detach any experimental map markers before unload
         Core.Store?.CloseAllOpen(); // keep the last session's playtime on a clean shutdown
         Core.Heatmap?.Flush();      // persist any un-saved heat-map samples
+        Core.Kills?.Flush();        // persist any un-saved kill tallies
         Harmony?.UnpatchSelf();
         return true;
     }

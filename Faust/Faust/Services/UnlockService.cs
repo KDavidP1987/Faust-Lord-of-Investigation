@@ -83,6 +83,22 @@ internal sealed class UnlockService
     public bool HasDefeatedBoss(ulong steam, int vbloodGuid) =>
         _defeated.TryGetValue(steam, out var set) && set.Contains(vbloodGuid);
 
+    /// <summary>Has ANY player on the server defeated this V Blood? (Server-wide "has it ever fallen",
+    /// for the boss board's <c>defeated</c> flag — Faust is the authoritative cross-player view.)</summary>
+    public bool IsDefeatedAnywhere(int vbloodGuid)
+    {
+        foreach (var set in _defeated.Values) if (set.Contains(vbloodGuid)) return true;
+        return false;
+    }
+
+    /// <summary>Union of every V Blood guid any player has defeated (the server-wide defeated roster).</summary>
+    public HashSet<int> AllDefeatedGuids()
+    {
+        var all = new HashSet<int>();
+        foreach (var set in _defeated.Values) all.UnionWith(set);
+        return all;
+    }
+
     /// <summary>Has the player defeated Dracula? Resolved by prefab name so no GUID is hardcoded.</summary>
     public bool BeatFinalBoss(ulong steam)
     {

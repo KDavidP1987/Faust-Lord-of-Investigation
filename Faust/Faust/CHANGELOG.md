@@ -26,6 +26,9 @@ Configure Faust in-game, plus two new things to investigate:
   protect performance.
 - **Fixes:** `.faust admin data status` no longer errors on busy servers; retired the unused `objectscan`
   feature.
+- **Verified in-game:** the per-feature admin controls/limiters — access level, item cost, cooldown, usage
+  limits, proximity, PvP availability, and unlock gates — are working. Further testing is still recommended
+  before relying on them in production.
 
 ## 0.15.0 (2026-06-11)
 

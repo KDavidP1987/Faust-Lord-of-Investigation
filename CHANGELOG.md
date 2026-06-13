@@ -64,6 +64,13 @@ In-game configuration, two new investigation features, and the open Raphael serv
   longer appears in the `[FAUST:version]` handshake, the `[FAUST:access]` list, `.faust admin status`, or the
   config (its config section is dropped). No client dependency — Raphael already ignores the token.
 
+### Verified
+- **Admin controls / limiters are functional in-game.** The per-feature gate axes — access level
+  (Off/AdminOnly/Players), item cost, cooldown, usage window/period/max-uses, proximity, PvP availability, and
+  unlock — have been verified working on a live server. **Further testing is recommended before relying on
+  these in production.** (The new boss/kills/worldscan reads and their categorization remain under ongoing
+  in-game validation.)
+
 ## [0.15.0] - 2026-06-11
 
 Two Raphael tester batches from v0.50.0 plus a new **player-position heat map**, all additive. The Raphael

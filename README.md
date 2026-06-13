@@ -4,10 +4,11 @@
 
 A **server-side** BepInEx IL2CPP mod that gives your [V Rising](https://playvrising.com/) dedicated
 server its missing **information layer** — the authoritative, global view of players, castles, plots,
-and activity that no game client can see on its own. Out of the box it's a powerful **moderation and
-oversight** console for admins; from there, *you* decide how much of that knowledge to share — as
-**PvP intel** (scout a rival's castle, resources, and activity windows — for a price), or as
-**community features** on a PvE server (open plots, who's online, server stats, clan rosters). Every
+**server entities** (V Bloods, NPCs, resource nodes), and activity that no game client can see on its
+own. Out of the box it's a powerful **moderation and oversight** console for admins; from there, *you*
+decide how much of that knowledge to share — as **PvP intel** (scout a rival's castle, resources, boss
+locations, and activity windows — for a price), or as **community features** on a PvE server (open
+plots, who's online, server stats, clan rosters, a find-it-on-the-map asset scanner). Every
 capability is controlled per feature — Off, admin-only, or players — with an optional **item cost**
 (the Faustian toll), cooldown, or unlock. Pairs with its companion client **Raphael, Lord of Wisdom**
 (the `[FAUST:*]` wire is the BloodCraftHub-family integration contract Raphael implements), or works

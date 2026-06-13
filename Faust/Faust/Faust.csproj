@@ -9,7 +9,7 @@
 		<LangVersion>12.0</LangVersion>
 		<BepInExPluginGuid>kdpen.Faust</BepInExPluginGuid>
 		<BepInExPluginName>Faust</BepInExPluginName>
-		<Description>Faust, Lord of Investigation — a server-side information layer for V Rising: the authoritative, global view of players, castles, plots, objects, and server activity. An admin moderation/oversight console you can also share as PvP intel or PvE community features, gated per-feature with an optional item cost (the Faustian toll), cooldown, or unlock. Built to run with its companion client Raphael, Lord of Wisdom. Pre-1.0 testing. Server-side only.</Description>
+		<Description>Faust, Lord of Investigation — a server-side information layer for V Rising: the authoritative, global view of players, castles, plots, server entities (V Bloods, NPCs, resource nodes), and server activity. An admin moderation/oversight console you can also share as PvP intel or PvE community features, gated per-feature with an optional item cost (the Faustian toll), cooldown, usage limit, or unlock. Built to run with its companion client Raphael, Lord of Wisdom. Pre-1.0 testing. Server-side only.</Description>
 		<Authors>kdpen</Authors>
 		<Copyright>Copyright © 2026 Kristopher Penland</Copyright>
 		<PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>

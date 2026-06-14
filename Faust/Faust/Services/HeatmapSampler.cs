@@ -64,7 +64,7 @@ internal static class HeatmapSampler
             foreach (var p in positions)
                 if (p.SteamId != 0) samples.Add((p.SteamId, p.X, p.Z));
 
-            Core.Heatmap.RecordSamples(samples, Settings.HeatmapCellSize.Value, Settings.HeatmapMaxCells.Value);
+            Core.Heatmap.RecordSamples(samples, Settings.HeatmapCellSize.Value, Settings.HeatmapMaxCells.Value, Settings.HeatmapRetentionDays.Value);
             if (Settings.VerboseLogging.Value)
                 Core.Log.LogInfo($"[FAUST HEATMAP] sampled {samples.Count} position(s).");
         }

@@ -140,10 +140,20 @@ these move together in one `chore(release): vX.Y.Z` commit:
 6. **The BCH contract** — if a release changed a `.faust` command or `[FAUST:*]` shape,
    `docs/BCH_INTEGRATION_CONTRACT.md` reflects it and `ApiVersion` is bumped.
 
-Run `tools/preflight.ps1` before any release commit — it checks version parity and that both
-changelogs have an entry. A `PostToolUse` hook (`.claude/hooks/release-sync-reminder.ps1`)
-surfaces this checklist on edits to the version files / changelogs. Hooks are backstops;
+Run `tools/preflight.ps1` before any release commit — it checks version parity, that both
+changelogs have an entry, the description length, **and doc-hygiene warnings** (repeated boilerplate,
+oversized Thunderstore page). A `PostToolUse` hook (`.claude/hooks/release-sync-reminder.ps1`)
+surfaces this checklist on edits to the version files / changelogs / READMEs. Hooks are backstops;
 **this CLAUDE.md rule is the authoritative process.**
+
+**Keep the docs clean — follow `docs/DOC_STYLE.md`.** The six surfaces drifted into repetition and
+over-explaining (an admin called the Thunderstore page "AI slop"). The non-negotiables: say each
+cross-cutting fact **once per document** (Raphael pairing, pre-1.0/testing, admin-control philosophy,
+feedback link — not per section/entry); changelog entries carry **no per-entry boilerplate footer**
+(it lives once at the top) and describe only what changed in that version; READMEs use a one-paragraph
+intro and **grouped** feature lists, and Status sections **point to** the changelog rather than recap
+every past version; bold for emphasis only. The player-facing (Thunderstore) changelog stays plain —
+no `§` refs / ApiVersion / class names.
 
 ## Git workflow
 

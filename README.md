@@ -3,111 +3,57 @@
 ![Faust, Lord of Investigation](https://raw.githubusercontent.com/KDavidP1987/Faust-Lord-of-Investigation/main/docs/img/faust-cover.jpg)
 
 A **server-side** BepInEx IL2CPP mod that gives your [V Rising](https://playvrising.com/) dedicated
-server its missing **information layer** — the authoritative, global view of players, castles, plots,
-**server entities** (V Bloods, NPCs, resource nodes), and activity that no game client can see on its
-own. Out of the box it's a powerful **moderation and oversight** console for admins; from there, *you*
-decide how much of that knowledge to share — as **PvP intel** (scout a rival's castle, resources, boss
-locations, and activity windows — for a price), or as **community features** on a PvE server (open
-plots, who's online, server stats, clan rosters, a find-it-on-the-map asset scanner). Every
-capability is controlled per feature — Off, admin-only, or players — with an optional **item cost**
-(the Faustian toll), cooldown, or unlock. Pairs with its companion client **Raphael, Lord of Wisdom**
-(the `[FAUST:*]` wire is the BloodCraftHub-family integration contract Raphael implements), or works
-from `.faust` chat. Pre-1.0 — published for testing.
+server the information layer the game never exposes: a global, authoritative view of players, castles,
+plots, server entities (V Bloods, NPCs, resource nodes), and activity that no client can see on its own.
+It's an admin moderation and oversight console first; from there you decide, feature by feature, how much
+to share with players — as PvP intel (for a price) or as PvE community tools. Every capability is gated
+per feature (Off / admin-only / players) with an optional item cost, cooldown, or unlock. Pairs with its
+companion client **Raphael, Lord of Wisdom** (which implements the `[FAUST:*]` wire), or works from
+`.faust` chat.
 
-> This is the **GitHub / developer** page. The player-facing mod page (what ships to Thunderstore)
-> lives at [`Faust/Faust/README.md`](Faust/Faust/README.md).
+> This is the **GitHub / developer** page. The player-facing mod page (Thunderstore) lives at
+> [`Faust/Faust/README.md`](Faust/Faust/README.md); the player-facing changelog is
+> [`Faust/Faust/CHANGELOG.md`](Faust/Faust/CHANGELOG.md).
 
-## ⚠ Status: pre-1.0 — early data release (0.15.0)
+## Status: pre-1.0 (0.16.1) — in testing
 
-Faust is **brand-new**, but moving fast. Confirmed working on a live server: the investigation
-queries — **castle/plot info, plot availability, player info, online positions**. Added since:
-the `FaustStore` persistence layer (real playtime/frequency/peak-hour in `pinfo`, plus a `stats`
-playtime leaderboard and concurrency series); the **complete administrative control surface**
-([`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md)) — item cost (consumed), flat
-cooldowns and window-per-period time-locks, PvP/PvE gating, live `.faust admin block/schedule`
-overrides, **unlock criteria** (a feature opens only after defeating a configured V Blood / Dracula,
-or an admin grant), and a **proximity requirement** (usable only within range of a configured
-object); the **full server castle map** (`castles`) + position **regions** (0.8.0); and a **decay
-watch** (`decay`, claimed castles by soonest-to-decay) plus **passive-collection controls** (0.9.0 —
-admins bound or switch off what Faust collects in the background, for performance); **activity
-analytics** (0.10.0 — chart-ready `stats hours`/`daily`/`newplayers`/`sessions` over the session log);
-**admin data management** (0.11.0 — `.faust admin data status/clear/wipe` + a `DataNamespace` for
-per-world separation, since Faust's data is server-scoped and survives a world wipe by default); and
-**weekday + per-player analytics**, **clan composition**, **population-health metrics**
-(DAU/WAU/MAU + retention, recency, concurrency peak, per-region distribution), and **experimental
-native-map player markers** (0.12.0 — `stats weekdays`/`pdaily`/`population`/`recency`/`peak`/`regions`,
-`.faust api clans`, and a gated-off `.faust admin showpositions` using the game's own map-icon attach);
-and (0.13.0) **all features now default to AdminOnly**, a per-player **query rate limit**
-(`RateLimitSeconds`), a **layered-admin allowlist** for data resets (`[Faust.Data] ResetSteamIds`), and
-the **player-activity roster** (`stats players`); (0.14.0) the **§8 tester batch** — richer
-`castleinfo` (floors, owning clan, total item count), **prisoners** in `resources`, a `clanmembers`
-roster endpoint, a **new-vs-returning** split on `stats daily`, and Faust **oversight** endpoints
-(`access` / `usage`); and (0.15.0) the **§9 drill-down batch** — the detail behind the charts:
-a **new-players roster** (`newplayers roster`), distinct-players-per-hour on `stats hours` (for
-average-per-player), a **session timeline** (`sessions timeline`), and a per-player **active-days
-grid** (`stats activegrid`); the **§10 region/roster batch** — a per-day per-region castle/plot/player
-series (`stats regiondaily`), a castle **fill-%** denominator (`plots` on `stats regions`), and
-playtime + castles on the new-players roster; and a **player-position heat map** (`heatmap`, ApiVersion 16)
-— an opt-in timed sampler that bins online positions into a grid for **per-player and server-wide
-density maps** (Raphael renders the heat map). 0.6.0 added
-**`castleresources` (#6)**. **0.16.0** adds the **in-game config editor** (`.faust admin set/get/setglobal/
-getglobal/resetcfg` — change any setting live, persisted, no restart), a **V Blood boss status board**
-(`bosses` — live boss position/region/health + up/down/defeated), **kill leaderboards** (`kills` /
-`bosskills`, fed by the death hook), and a **world-asset scan** (`worldscan` — a filterable map of NPC units
-with blood type/quality + resource nodes from an admin-curated whitelist, cached + rate-limited), plus the
-open Raphael server-side items: the `data status` 512-byte
-overflow fix (§13), retiring `objectscan` (§14), and the full gate picture on `[FAUST:access]` (§15a).
-**ApiVersion → 18.** The persistence, admin-control, boss, and kill paths compile clean but are
-**pending a live in-game pass** (the 0.14.0–0.16.0 tester-batch reads, the heat-map sampler, and the boss
-roster / un-spawned boss coords especially). Remaining: `AllBosses`/`AllQuests` unlock auto-detection, the
-daily **item-collection** leaderboard half (deferred — the noisy/gather-accuracy design), and a full boss
-roster for not-yet-defeated, not-spawned bosses. See [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §9 for
-the roadmap of candidate features.
+The full investigation feature set and the per-feature admin-control surface are implemented; the wire
+is at **ApiVersion 18**. Faust is in live testing — see the [changelog](CHANGELOG.md) for the per-version
+history and the [feature table](#features-see-docsfaust_designmd) below for what's shipped vs pending.
 
-**Bug reports & feedback:** the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** is
-the primary channel; written-up GitHub issues are welcome too.
+The core queries (castle/plot info, plot availability, player info, positions) are confirmed on a live
+server. The persistence, admin-control, boss, kill, and world-scan paths build clean and are being
+validated in-game. Known remaining work: `AllBosses`/`AllQuests` unlock auto-detection, the deferred
+item-collection leaderboard, and a roster for not-yet-defeated, not-spawned bosses. See
+[`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §9 for the candidate-feature roadmap.
 
-## The idea
+**Bug reports & feedback:** the [Shadow Realm Discord](https://discord.gg/usC9QgBrXK) is the primary
+channel; GitHub issues welcome too.
 
-The V Rising **client is spatially culled** — it only receives entities near the local player. The
-**server** holds the authoritative, global, persistent world. Faust gathers that global view,
-**gates** it (per feature, server-enforced), optionally **charges an item cost** for it (the
-Faustian toll), and ships it to BloodCraftHub — exactly the integration pattern the author's
-sibling server-side mods **Uriel** and **Beelzebub** use. Faust is **not** a dependency of any of
-them; each is independent, and BloodCraftHub is an optional companion, never required.
+## How it works
 
-## Philosophy: information under admin control
+The V Rising client is spatially culled — it only receives entities near the local player. The server
+holds the authoritative, global, persistent world. Faust gathers that view, gates it per feature
+(server-enforced), optionally charges an item cost for it (the Faustian toll), and ships it to Raphael —
+the same integration pattern the author's sibling mods Uriel and Beelzebub use. None of them depend on
+each other; Raphael is an optional companion, never required.
 
-Faust is, first and foremost, an **administrative and moderation tool** — it gives the server team the
-authoritative, global view of players, castles, plots and activity that the game itself never surfaces.
-On top of that, admins can choose to **grant** parts of it to players: as a **strategic tool** on PvP
-servers (intel that rewards engagement, optionally behind an item cost, cooldown, unlock, or location
-requirement), and as a **community-building tool** on PvE servers (sharing useful, friendly information
-that helps players coordinate and connect).
+Admins control Faust on two independent axes:
 
-The defining principle is **admin control, feature by feature.** Nothing is exposed to players unless an
-admin decides it should be. Sensitive intel (positions, enemy resources, other players' data) **defaults
-to admin-only**; opening any of it to players is a deliberate, server-by-server choice.
+1. **Exposure** — per feature: who may read it (`Off` / `AdminOnly` / `Players`), at what cost, with what
+   cooldown/window, behind what unlock or proximity requirement. Sensitive intel (positions, enemy
+   resources, other players' data) defaults to admin-only. See
+   [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md).
+2. **Collection** — what Faust gathers in the background. Almost every query reads live state on demand
+   (zero idle cost); only the session/population history accumulates (event-driven), and the optional
+   position heat map (`[Faust.Heatmap]`, off by default) is the one timer-driven collector. The
+   `[Faust.Collection]` / `[Faust.Heatmap]` config bounds or disables each, so Faust never becomes a
+   performance concern.
 
-Admins control Faust on **two independent axes**:
-
-1. **Exposure** — per feature: who may read it (`Off` / `AdminOnly` / `Players`), at what cost, with
-   what cooldown/window, behind what unlock or proximity requirement. (See
-   [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md).)
-2. **Collection** — what Faust *passively gathers* in the background. Almost every query reads live
-   state on demand (zero idle cost); the session/population time-series accumulates over time (event-
-   driven, on connect/disconnect), and the **optional position heat map** (`[Faust.Heatmap]`, **off by
-   default**) is the one *timer-driven* collector — it samples online positions every 30s–5min when an
-   admin enables it. The `[Faust.Collection]`/`[Faust.Heatmap]` config lets admins bound each or switch
-   it off entirely — so Faust never becomes a performance concern, regardless of how widely its data is
-   exposed. (See [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) §10.)
-3. **Data lifecycle** — Faust's stored data lives in `BepInEx/config/Faust/` (server-scoped, *not* in
-   the world save), so it **persists across a world wipe** — intentional, since the same players return
-   and their history stays relevant. Admins manage it explicitly with **`.faust admin data`**:
-   `status` (footprint), `clear <days>` (prune old activity on demand), and
-   `wipe <activity|unlocks|usage|heatmap|all> confirm` (reset a store — `unlocks` is the usual fresh-world
-   reset; `heatmap` clears the position density grid). Set `DataNamespace` to keep each world's data fully separate instead. `SessionRetentionDays`
-   auto-trims old activity on very busy / long-lived servers (default keeps everything).
+Stored data lives in `BepInEx/config/Faust/` (server-scoped, not in the world save), so it persists
+across a world wipe — the same players return and their history stays relevant. Manage it with
+`.faust admin data status` / `clear <days>` / `wipe <store> confirm`, set `DataNamespace` to separate
+worlds, and `SessionRetentionDays` to auto-trim on long-lived servers.
 
 ## Features (see [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md))
 
@@ -123,7 +69,7 @@ Admins control Faust on **two independent axes**:
 | 1 | Player-position heat map (per-player + server-wide density grid) | AdminOnly | ✅ `heatmap` (opt-in timed sampler → binned grid; Raphael renders) |
 | 6 | Enemy castle resource totals | AdminOnly | ✅ `resources` |
 | 8 | Server stats (playtime leaderboard, concurrency series) | AdminOnly | ✅ `stats` |
-| — | **V Blood boss status board** (live position/region/health + up/down/defeated) | AdminOnly | ✅ `bosses` / `boss <name>` (`BossService`; live entities — un-spawned roster TBD) |
+| — | **V Blood boss status board** (live position/region/health + up/down/defeated) | AdminOnly | ✅ `bosses` / `boss <name>` (`BossService`; static + roaming via `Translation`; not-spawned roster TBD) |
 | 8 | **Kill leaderboards** (top killers +PvP; per-boss defeat counts) | AdminOnly | ✅ `kills` / `bosskills` (death-hook tally; `[Faust.Collection] KillTracking`) |
 | 5 | **World-asset scan** (map of NPC units +blood, ores/trees/plants; filterable) | AdminOnly | ✅ `worldscan` (whitelisted; cached + rate-limited scan; `WorldScanService`) |
 | 8 | Activity analytics (hour-of-day, weekday, daily DAU/minutes, new-players, session-length, per-player daily) | AdminOnly | ✅ `stats hours\|weekdays\|daily\|newplayers\|sessions\|pdaily` (Raphael charts) |
@@ -253,6 +199,7 @@ before any release commit — it verifies version parity and changelog entries. 
 - [`docs/FAUST_DESIGN.md`](docs/FAUST_DESIGN.md) — vision, feature evaluation, build order
 - [`docs/BCH_INTEGRATION_CONTRACT.md`](docs/BCH_INTEGRATION_CONTRACT.md) — the BloodCraftHub living contract
 - [`docs/features/ADMIN_CONTROL.md`](docs/features/ADMIN_CONTROL.md) — the admin control-surface spec (gating, cost, time-locks, unlocks, runtime control)
+- [`docs/DOC_STYLE.md`](docs/DOC_STYLE.md) — writing standard for the changelogs, READMEs & Thunderstore page (keep them clean)
 - [`docs/PREFLIGHT.md`](docs/PREFLIGHT.md) — session-start checklist
 - [`docs/DEV_REMINDERS.md`](docs/DEV_REMINDERS.md) — IL2CPP/ECS gotchas & process rules
 - [`CHANGELOG.md`](CHANGELOG.md) — full changelog (the Thunderstore package carries a condensed one)

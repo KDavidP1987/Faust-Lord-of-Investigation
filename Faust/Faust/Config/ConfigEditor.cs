@@ -91,6 +91,7 @@ internal static class ConfigEditor
         Int("heatmapsample", Settings.HeatmapSampleSeconds, 30, 300, "30..300 seconds", "heatmapsampleseconds"),
         Float("heatmapcellsize", Settings.HeatmapCellSize, 1f, float.MaxValue, "world units, > 0"),
         Int("heatmapmaxcells", Settings.HeatmapMaxCells, 0, int.MaxValue, ">= 0 (0 = unlimited)"),
+        Int("heatmapretentiondays", Settings.HeatmapRetentionDays, 0, int.MaxValue, ">= 0 (0 = keep all days)"),
         Bool("mapmarkersenabled", Settings.MapMarkersEnabled, "markersenabled"),
         Int("mapmarkerprefab", Settings.MapMarkerPrefabGuid, int.MinValue, int.MaxValue, "PrefabGUID", "mapmarkerprefabguid"),
         Int("worldscaninterval", Settings.WorldScanInterval, 5, int.MaxValue, "seconds, >= 5"),

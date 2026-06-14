@@ -148,6 +148,7 @@ internal static class Settings
     public static ConfigEntry<int> HeatmapSampleSeconds { get; private set; }
     public static ConfigEntry<float> HeatmapCellSize { get; private set; }
     public static ConfigEntry<int> HeatmapMaxCells { get; private set; }
+    public static ConfigEntry<int> HeatmapRetentionDays { get; private set; }
 
     // ---- World-asset scan (the map of NPC units + resource nodes; the `worldscan` feature). The scan of
     //      the whole map is EXPENSIVE, so it's cached and rebuilt at most once per interval (the cache TTL
@@ -276,8 +277,17 @@ internal static class Settings
             "cells would mix resolutions.");
         HeatmapMaxCells = config.Bind(
             "Faust.Heatmap", "MaxCells", 250000,
-            "Hard cap on distinct (player, cell) entries stored (bounds memory + heatmap.json size). Once " +
-            "reached, existing cells keep counting but no new cells are added. 0 = unlimited (not advised).");
+            "Hard cap on distinct (player, cell) entries stored (bounds memory + heatmap.json size). Applied " +
+            "to BOTH the cumulative all-time grid and the per-day grid independently. Once reached, existing " +
+            "cells keep counting but no new cells are added. 0 = unlimited (not advised).");
+        HeatmapRetentionDays = config.Bind(
+            "Faust.Heatmap", "RetentionDays", 30,
+            "How many UTC days of per-day heat-map history to keep, for the WINDOWED queries (.faust api " +
+            "heatmap <scope> <days> — today / this week / this month / last N days). Older days are pruned " +
+            "(they still counted toward the ALL-TIME map, which is days=0 and is never pruned). 30 covers " +
+            "today/week/month; raise it for longer windows at the cost of more memory + heatmap.json size, " +
+            "lower it to trim footprint. 0 = keep all days (unbounded — not advised on a long-lived server). " +
+            "Changing this prunes on the next sample/load; it does not retroactively recover dropped days.");
 
         WorldScanInterval = config.Bind(
             "Faust.WorldScan", "ScanIntervalSeconds", 10,
@@ -287,11 +297,17 @@ internal static class Settings
             "ONE rescan, server-wide. This is the de-facto rate limit (clamped to a 5s minimum). Raise it on a " +
             "busy server. The scan is on-demand only — zero cost when nobody is querying.");
         WorldScanMaxResults = config.Bind(
-            "Faust.WorldScan", "MaxResults", 2000,
-            "Hard cap on assets returned by a single world scan (bounds the snapshot + wire size). When the " +
-            "map has more whitelisted assets than this, the scan stops at the cap and logs a warning (no " +
-            "silent truncation). Filter the query (by type/id/blood) to see specific things; raise this only " +
-            "if you really need the full map at once.");
+            "Faust.WorldScan", "MaxResults", 10000,
+            "Cap on the number of assets a single '.faust api worldscan' query RETURNS, applied AFTER your " +
+            "filter (the wire is paged separately). The full whitelisted, on-map world is always snapshotted " +
+            "first, so a narrow filter (e.g. bloodqmin=99) scans every asset and returns all of its matches — " +
+            "no qualifying asset is ever missed. This cap only trims a broad result (e.g. type=all) before it " +
+            "goes to the wire; when it does, the reply carries 'truncated=1' (never silent) so you know to " +
+            "filter further. Set 0 for UNLIMITED — this also lifts the internal snapshot safety backstop, so the " +
+            "WHOLE whitelisted, on-map world is captured and no query is ever truncated (use this if you rely on " +
+            "exhaustive results; on a very asset-dense map it costs more memory/scan time, paid only when " +
+            "someone queries). Raise it (or use 0) if a broad query is being cut short. The scan is on-demand " +
+            "and cached, so the cost is paid only when someone queries.");
 
         BossMapLimit = config.Bind(
             "Faust.Bosses", "MapLimit", 9000f,

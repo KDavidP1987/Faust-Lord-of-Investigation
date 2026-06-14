@@ -1,7 +1,55 @@
 # Changelog
 
 Condensed, player-facing changelog. Full technical history:
-[GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md)
+[GitHub](https://github.com/KDavidP1987/Faust-Lord-of-Investigation/blob/main/CHANGELOG.md).
+
+Every release below is **pre-1.0** and built to run with the companion client **Raphael, Lord of Wisdom**.
+Faust is in active testing — feedback and feature requests at the
+[Shadow Realm Discord](https://discord.gg/usC9QgBrXK) shape 1.0.
+
+## 0.16.5 (2026-06-13)
+
+- **Fixed: held prisoners now show their blood type and quality.** In the castle-resources view, prisoners
+  were listed with no blood type and a blank quality. Faust now reads a captured unit's blood from the right
+  place, so each prisoner shows its actual blood type and quality %.
+
+## 0.16.4 (2026-06-13)
+
+- **New: time-windowed heat maps.** The player-position heat map can now be filtered by time — today, this
+  week, this month, or any number of recent days — instead of only the all-time map. Works together with the
+  existing per-player filter, so you can see one player's activity for just this week. The all-time map is
+  unchanged. A new `RetentionDays` setting (default 30) controls how much per-day history is kept.
+
+## 0.16.3 (2026-06-13)
+
+- **Fixed: more bosses show their real map location, and none show a bogus off-map point.** Many bosses on the
+  "down" half of the board are actually alive but parked off-map while no one's nearby. Faust now reads their
+  real lair location from the game's own V Blood objective map marker and reports them with coordinates, and it
+  no longer mistakes the off-map parking spot for a real location (so a boss without a resolvable position
+  shows as "down" instead of sitting at the edge of the map).
+- **Fixed: a filtered world scan no longer skips matching assets.** When you searched the map with a narrow
+  filter (say, NPCs with blood quality 99+), the result cap was being applied while gathering — before your
+  filter ran — so on busy maps the scan filled up on common entities and never reached the rare matches you
+  were looking for. The scan now gathers the whole map first and applies your result limit afterward, so a
+  narrow search finds every match.
+
+## 0.16.2 (2026-06-13)
+
+- **Roaming bosses now show their real location on the map.** Bosses that wander were reporting their status
+  but not a usable position — their combat data is parked off-map when no one's nearby. Faust now pulls the
+  location from the game's own map tracking (the same data the blood-altar map uses) and combines it with the
+  boss's status, so roaming bosses appear where they actually are. Static bosses are unchanged.
+
+## 0.16.1 (2026-06-13)
+
+- **Fixed: roaming bosses no longer go missing from the boss board.** V Bloods that wander the map (rather
+  than sit in a fixed lair) were showing as "down" with no location — even the boss standing next to you —
+  because their position was being read from a value that goes stale when no player is nearby. The board now
+  reads each boss's live position correctly, so roaming bosses appear on the map where they actually are.
+- Improved the admin `.faust admin bossdiag` tool with much more detail for diagnosing boss-location issues.
+- **World scan sees more of the map.** The result cap rose from 2000 to 10000, and you can now set it to `0`
+  for unlimited so a busy map's scan isn't cut short and miss matching objects. Change it any time with
+  `.faust admin setglobal worldscanmaxresults=0` (or edit `[Faust.WorldScan] MaxResults`).
 
 ## 0.16.0 (2026-06-12)
 
@@ -28,8 +76,8 @@ Configure Faust in-game, plus two new things to investigate:
 - **Fixes:** `.faust admin data status` no longer errors on busy servers; retired the unused `objectscan`
   feature.
 - **Verified in-game:** the per-feature admin controls/limiters — access level, item cost, cooldown, usage
-  limits, proximity, PvP availability, and unlock gates — are working. Further testing is still recommended
-  before relying on them in production.
+  limits, proximity, PvP availability, and unlock gates — are working (further testing recommended before
+  production).
 
 ## 0.15.0 (2026-06-11)
 
@@ -62,8 +110,6 @@ Tester-feedback batch — the detail tables beneath the activity charts (who, an
   fails with "server didn't respond" — multi-word clan names now resolve.
 - The §9/§10/§11 stats additions are under the existing **stats** gate (admin-default); the heat map has its own
   **heatmap** gate. All additive — older clients simply don't query them.
-- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**.
-  Feedback and feature requests at **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) shape 1.0.
 
 ## 0.14.0 (2026-06-11)
 
@@ -79,8 +125,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
 - **Faust oversight for admins.** New `.faust api access` (who can use each feature) and
   `.faust api usage` (how often each feature is used and what it costs players) — pure server-side
   accounting, surfaced in `.faust admin data status` and resettable via `.faust admin data wipe usage`.
-- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**.
-  Feedback and feature requests at **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) shape 1.0.
 
 ## 0.13.0 (2026-06-10)
 
@@ -93,9 +137,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   run `.faust admin data clear`/`wipe`. Empty = any admin (as before). For tiered admin teams.
 - **New: `.faust api stats players`** — a full player-activity roster (active-today/this-week, last-seen,
   sessions, playtime, days-idle) behind the population dashboards.
-- **Pre-1.0 testing release**, built to run with its companion client **Raphael, Lord of Wisdom**. Tell us
-  whether the information is accurate and useful — bug reports, feedback, and feature requests at
-  **The Shadow Realm Discord** (https://discord.gg/usC9QgBrXK) directly shape 1.0.
 
 ## 0.12.0 (2026-06-10)
 
@@ -111,7 +152,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   using the game's own map-icon attach system. **Off by default** and still being validated — when you
   enable it on a test server, double-check that the markers are visible only to admins before relying
   on it.
-- Note: still an early release — these haven't been validated in a live session yet.
 
 ## 0.11.0 (2026-06-10)
 
@@ -126,7 +166,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
 - **New config `DataNamespace`** — leave empty (default) for one shared dataset, or set a name per world
   to keep each world's data separate.
 - Clearer guidance on `SessionRetentionDays` (auto-trim old data on big/long-running servers).
-- Note: still an early release — these haven't been validated in a live session yet.
 
 ## 0.10.0 (2026-06-10)
 
@@ -144,7 +183,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   same "—" placeholder the rest of the UI uses.
 - **Improved: full server-population history.** The population/concurrency graph is no longer capped to
   the most recent ~200 data points — it now serves the whole stored history (paged).
-- Note: still an early release — these haven't been validated in a live session yet.
 
 ## 0.9.0 (2026-06-10)
 
@@ -157,7 +195,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
 - Both READMEs now spell out the philosophy: **Faust is an administrative tool and global server view;
   admins decide, per feature, what (if anything) players can see** — a strategic tool to grant in PvP, a
   community-building tool to share in PvE.
-- Note: still an early release — these haven't been validated in a live session yet.
 
 ## 0.8.0 (2026-06-10)
 
@@ -166,15 +203,12 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   Powers BloodCraftHub's "All Plots" tab.
 - **Player positions now include region** — the online-player map data now says which region each
   player is in (handy when they're far across the map).
-- Note: still an early release — these haven't been validated in a live session yet.
-
 ## 0.7.0 (2026-06-09)
 
 - **New: tie a feature to a place.** Admins can require players to be **near a specific object** to
   use a feature — set `RequireNearPrefab` (the object's id) + `RequireNearDistance` (metres) per
   feature. Put an altar/station in a castle (or pick a world landmark) and the ability only works
   when standing near it, instead of anywhere in the world.
-- Note: still an early release — the proximity check hasn't been validated in a live session yet.
 
 ## 0.6.0 (2026-06-09)
 
@@ -182,7 +216,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   castle** (sums every chest and station). Defaults to admin-only and is a perfect candidate to
   charge an item for, or restrict to PvP servers, via the per-feature settings. Powerful raid intel
   for the BloodCraftHub UI.
-- Note: still an early release — the castle scan hasn't been validated against a live castle yet.
 
 ## 0.5.0 (2026-06-09)
 
@@ -191,7 +224,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
   it — set per feature with `Unlock` in the config. Admins can also hand-unlock for anyone:
   `.faust admin grant <player> <feature>` / `revoke` / `unlocks <player>`.
 - Admins and a player querying themselves always bypass the lock.
-- Note: still an early release — the boss-kill detection hasn't been validated in a live session yet.
 
 ## 0.4.0 (2026-06-09)
 
@@ -206,7 +238,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
     and `status`.
 - Configure it all per feature in `kdpen.Faust.cfg` (`Availability`, `WindowSeconds`,
   `PeriodSeconds`, `MaxUsesPerPeriod`, plus the existing cost/cooldown/access).
-- Note: still an early release — these controls haven't been validated across a live session yet.
 
 ## 0.3.0 (2026-06-09)
 
@@ -216,8 +247,6 @@ Tester-feedback batch — more castle detail, prisoners, clan rosters, and admin
 - **New: `.faust api stats <playtime|concurrency>`** — a playtime leaderboard and a server
   population history (for BloodCraftHub graphs).
 - Sessions persist to `BepInEx/config/Faust/sessions.json`.
-- Note: still an early release for testing — the session-logging path hasn't been validated across
-  a live reconnect cycle yet.
 
 ## 0.2.0 (2026-06-09)
 

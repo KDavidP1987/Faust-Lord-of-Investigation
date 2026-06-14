@@ -61,10 +61,17 @@ internal sealed class WorldScanService
     // Positions beyond this magnitude are off-map/pooled sentinels (see BossService.MapLimit) — skip them.
     const float MapLimit = 6000f;
 
+    // The snapshot captures the COMPLETE whitelisted, on-map world so a filtered query (e.g. a rare blood
+    // quality) sees every matching asset — never just whatever happened to fall inside a small pre-filter cap.
+    // This is only an out-of-memory backstop, set far above any real map's asset count; the per-query result
+    // bound is Settings.WorldScanMaxResults, applied AFTER filtering in GetAssets (so a narrow filter returns
+    // all its matches while a broad query is still capped for the wire).
+    const int SnapshotSafetyCap = 200_000;
+
     readonly Dictionary<int, string> _whitelist = new(); // guid -> last-known dev-name (for `list`)
     readonly List<AssetSnapshot> _cache = new();
     double _lastScan = double.MinValue;
-    bool _truncated;
+    bool _snapshotTruncated; // the snapshot itself hit the OOM backstop (genuinely exceptional)
 
     static string SaveDir => FaustPaths.DataDir;
     static string SavePath => Path.Combine(SaveDir, "worldscan_whitelist.json");
@@ -195,16 +202,30 @@ internal sealed class WorldScanService
     // ---- query (cached snapshot + on-demand rescan) ----
 
     /// <summary>Filtered, paged assets. Rebuilds the snapshot only if the cache is older than the configured
-    /// interval (clamped to a 5s floor) — otherwise it re-filters the cache. <paramref name="truncated"/> is
-    /// true if the last scan hit MaxResults.</summary>
+    /// interval (clamped to a 5s floor) — otherwise it re-filters the cache. The complete world is snapshotted,
+    /// then THIS query's matches are bounded by MaxResults (post-filter) — so a narrow filter (e.g. a rare
+    /// blood quality) returns every match, never just whatever fell inside a pre-filter cap. <paramref
+    /// name="truncated"/> is true if this query's results were cut to MaxResults (or, rarely, the snapshot hit
+    /// its safety backstop).</summary>
     public List<AssetSnapshot> GetAssets(Filter filter, out bool truncated)
     {
         int interval = Math.Max(5, Settings.WorldScanInterval.Value);
         if (NowSeconds - _lastScan >= interval) Rescan();
-        truncated = _truncated;
 
         var result = new List<AssetSnapshot>();
         foreach (var a in _cache) if (Matches(a, filter)) result.Add(a);
+
+        // Bound what THIS query returns, AFTER filtering — the fix for "a filtered scan missed assets": the
+        // cap now limits matches returned, not entities captured, so a rare-attribute filter scans the whole
+        // world and yields all its (typically few) matches. A broad query is still capped for the wire.
+        int cap = Settings.WorldScanMaxResults.Value;
+        bool resultCapped = false;
+        if (cap > 0 && result.Count > cap)
+        {
+            result.RemoveRange(cap, result.Count - cap);
+            resultCapped = true;
+        }
+        truncated = _snapshotTruncated || resultCapped;
         return result;
     }
 
@@ -224,19 +245,23 @@ internal sealed class WorldScanService
     void Rescan()
     {
         _cache.Clear();
-        _truncated = false;
-        int cap = Settings.WorldScanMaxResults.Value;
-        if (cap <= 0) cap = int.MaxValue;
+        _snapshotTruncated = false;
+        // Capture the COMPLETE world so filtering in GetAssets sees every asset; the per-query MaxResults cap
+        // is applied there, after the filter — not here. MaxResults <= 0 means UNLIMITED (the admin opted into
+        // exhaustive, guaranteed-complete results), so lift the OOM backstop entirely — otherwise a map with
+        // more whitelisted entities than the backstop (resource nodes alone can exceed it) would still report
+        // truncated=1 despite the 0 setting. A positive MaxResults keeps the backstop as a memory/time guard.
+        int snapCap = Settings.WorldScanMaxResults.Value <= 0 ? int.MaxValue : SnapshotSafetyCap;
         try
         {
-            ScanUnits(cap);
-            ScanNodes<YieldResourcesOnDamageTaken>(cap);
-            ScanNodes<YieldResourcesOnPickup>(cap);
+            ScanUnits(snapCap);
+            ScanNodes<YieldResourcesOnDamageTaken>(snapCap);
+            ScanNodes<YieldResourcesOnPickup>(snapCap);
         }
         catch (Exception ex) { Core.Log.LogError($"[FAUST WORLDSCAN] scan failed: {ex.Message}"); }
         _lastScan = NowSeconds;
-        if (_truncated)
-            Core.Log.LogWarning($"[FAUST WORLDSCAN] hit MaxResults={cap}; snapshot truncated (filter the query or raise MaxResults).");
+        if (_snapshotTruncated)
+            Core.Log.LogWarning($"[FAUST WORLDSCAN] snapshot hit the {SnapshotSafetyCap} safety backstop — some assets were not captured. Set [Faust.WorldScan] MaxResults=0 for an uncapped (complete) snapshot, or trim the whitelist with '.faust admin worldscan remove/clear'.");
     }
 
     void ScanUnits(int cap)
@@ -246,7 +271,7 @@ internal sealed class WorldScanService
         {
             for (int i = 0; i < ents.Length; i++)
             {
-                if (_cache.Count >= cap) { _truncated = true; return; }
+                if (_cache.Count >= cap) { _snapshotTruncated = true; return; }
                 var e = ents[i];
                 if (e.Has<PlayerCharacter>() || e.Has<VBloodUnit>()) continue; // not players, not bosses
                 // Many resource nodes (trees/plants/ore) are ALSO "units" (UnitLevel+Health) — classify them
@@ -351,7 +376,7 @@ internal sealed class WorldScanService
         {
             for (int i = 0; i < ents.Length; i++)
             {
-                if (_cache.Count >= cap) { _truncated = true; return; }
+                if (_cache.Count >= cap) { _snapshotTruncated = true; return; }
                 var e = ents[i];
                 int guid = e.GetPrefabGuid()._Value;
                 if (guid == 0 || !_whitelist.ContainsKey(guid)) continue;

@@ -466,7 +466,8 @@ internal sealed class CastleService
     /// <see cref="ImprisonedBuff"/> (a buff entity targeting the captured unit); we resolve each buff's
     /// target, attribute it by the unit's territory, and read its name + blood. Fully guarded — any
     /// resolution failure yields fewer/sentineled rows, never a throw (these IL2CPP reads are validated
-    /// in-game). Blood fields sentinel to "-"/-1 when a unit carries no <see cref="Blood"/>.
+    /// in-game). Blood comes from <see cref="BloodConsumeSource"/> (the captured unit's feedable blood),
+    /// falling back to <see cref="Blood"/>; fields sentinel to "-"/-1 when neither is present.
     /// </summary>
     List<(string name, string bloodType, int bloodQuality)> CollectPrisoners(int territoryIndex)
     {
@@ -484,12 +485,27 @@ internal sealed class CastleService
                 if (GetTerritoryIndexAt(unit.Read<LocalToWorld>().Position) != territoryIndex) continue;
 
                 string name = unit.Has<PrefabGUID>() ? unit.Read<PrefabGUID>().GetPrefabName() : "Prisoner";
+                // A captured NPC's feedable blood is in BloodConsumeSource (UnitBloodType + BloodQuality) — the
+                // same place worldscan reads it. The Blood component is the PLAYER blood pool, which these world
+                // units don't carry, which is why prisoners were reporting bloodtype=-/bloodquality=-1. Read the
+                // consume source first, fall back to Blood so a unit that somehow carries only Blood still resolves.
                 string bloodType = "-"; int bloodQuality = -1;
-                if (unit.Has<Blood>())
+                if (unit.TryGetComponent<BloodConsumeSource>(out var bcs))
                 {
-                    var blood = unit.Read<Blood>();
+                    bloodType = bcs.UnitBloodType._Value.GetPrefabName();
+                    bloodQuality = (int)System.Math.Round(bcs.BloodQuality);
+                }
+                else if (unit.TryGetComponent<Blood>(out var blood))
+                {
                     bloodType = blood.BloodType.GetPrefabName();
                     bloodQuality = (int)System.Math.Round(blood.Quality);
+                }
+                else if (Faust.Config.Settings.VerboseLogging.Value)
+                {
+                    // Neither blood component on the prisoner — self-reporting so the server log tells us it's a
+                    // real unit (and the fix targets the wrong component) instead of guessing again.
+                    Core.Log.LogWarning($"[FAUST CASTLE] prisoner {name} has neither BloodConsumeSource nor Blood " +
+                        $"(unitLevel={unit.Has<UnitLevel>()} health={unit.Has<Health>()}).");
                 }
                 result.Add((name, bloodType, bloodQuality));
             }

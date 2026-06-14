@@ -31,6 +31,9 @@ Work this list at the top of every working session, before making changes.
 - [ ] If this session will end in a version bump: re-read CLAUDE.md →
       "Release & changelog discipline" (six surfaces move together) and run
       `tools/preflight.ps1` before the `chore(release)` commit.
+- [ ] Touching a changelog or README? Follow `docs/DOC_STYLE.md` — say each cross-cutting
+      fact once (no per-entry boilerplate footers), group features, keep the Status section
+      pointing at the changelog. `preflight.ps1` emits doc-hygiene warnings for drift.
 
 ## 5. Foundation invariants (don't regress these)
 

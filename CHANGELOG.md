@@ -7,6 +7,121 @@ CLAUDE.md → "Release & changelog discipline").
 Format: [Keep a Changelog](https://keepachangelog.com/) flavored; versions follow the mod's own
 incremental scheme (pre-1.0: minor = feature batch, patch = fixes).
 
+## [0.16.5] - 2026-06-13
+
+No wire change (**ApiVersion stays 19**); the `[FAUST:prisoner]` row is unchanged — its blood fields just
+carry real values now.
+
+### Fixed
+- **Castle-resources prisoners now report their real blood type and quality.** Prisoner rows came back
+  `bloodtype=- bloodquality=-1` because the code read the `Blood` component — that's the *player* blood pool,
+  which captured world NPCs don't carry. A unit's feedable blood lives in `BloodConsumeSource` (the same place
+  `worldscan` reads it). Prisoners now read `BloodConsumeSource` first (falling back to `Blood`), so a held
+  unit reports its actual blood type and quality %.
+
+## [0.16.4] - 2026-06-13
+
+Heat-map time windows. **ApiVersion 18 → 19** (additive: `.faust api heatmap` gains an optional `days` arg
+and `[FAUST:hmhead]` grows `days=`/`retentiondays=`; an older Raphael omits `days` and reads the all-time map
+exactly as before).
+
+### Added
+- **Time-windowed heat maps — today / this week / this month / any last-N days.** `.faust api heatmap
+  [scope] [days] [page]`: `days=0` is the cumulative all-time map (unchanged, never pruned), `days=N` sums the
+  last N UTC days. Backed by a new per-UTC-day layer kept alongside the all-time grid, so windowed queries
+  don't cost the all-time map its exactness. Combines with the existing per-player scope (`<all|name|steamId>`),
+  so "this player, this week" works. `[FAUST:hmhead]` echoes `days=` and `retentiondays=` so Raphael can build
+  a today/week/month/all toggle (and cap it at the retained window).
+- **`[Faust.Heatmap] RetentionDays`** (default **30**) — how many UTC days of per-day history to keep for the
+  windowed queries; older days prune out (the all-time map is never pruned). Bounds memory/disk on a
+  long-running server. Also tunable live via `.faust admin setglobal heatmapretentiondays=…`. `MaxCells` now
+  bounds the all-time and per-day layers independently.
+
+## [0.16.3] - 2026-06-13
+
+World-scan correctness + boss-location coverage. No wire change (**ApiVersion stays 18**); the `[FAUST:asset]`,
+`[FAUST:note]` and `[FAUST:boss]` shapes are unchanged — more bosses simply carry real coordinates.
+
+### Fixed
+- **The (10000,10000) parking sentinel is never reported as a location.** Streamed-out / not-currently-placed
+  boss entities sit at the off-map sentinel ~(10000,10000). That position is now treated as off-map regardless
+  of `MapLimit`, so raising `MapLimit` to 10000 can no longer surface the bogus coords (which is what put every
+  parked boss at `x=10000 z=10000`) — a sentinel-parked boss is routed through the map-token combine, or
+  reported as honest `down`, never at the sentinel.
+- **Bosses parked at the off-map sentinel now resolve their real lair location.** The map-token combine that
+  should supply a parked boss's real position only checked `MapIconData.TargetUser` (the player/user-icon
+  link) and the blood-altar tracker, neither of which covers a parked boss — so they fell through to `down`.
+  The combine now adds a **third source**: the V Blood OBJECTIVE map icon, which links to its boss via
+  `MapIconTargetEntity.TargetEntity` and sits at the lair's on-map position. A `Follower`-chain fallback (the
+  KindredCommands locate pattern) covers bosses parented to an on-map entity. **Confirmed in-game**: the whole
+  board now reports `up` with real coordinates/regions (a streamed-out boss with no resolvable position still
+  stays honest `down`). `.faust admin bossdiag icons` reports, per source, where the positions come from.
+- **A filtered `worldscan` no longer silently misses assets.** `MaxResults` was applied to the *pre-filter*
+  snapshot (scanned units-first, then nodes), so on an asset-dense map the cache filled to the cap before the
+  filter ran — and a narrow query (e.g. `bloodqmin=99`) only matched among whatever fell inside that cap, so a
+  qualifying NPC past it was never returned even when you knew it existed. The scan now snapshots the
+  **complete** whitelisted, on-map world and applies `MaxResults` **after** the filter, bounding only the rows
+  a query returns. A narrow filter scans the whole world and yields all its matches; `truncated=1` now means
+  "this query's results were capped," not "the snapshot was cut." **`MaxResults=0` now truly means unlimited**
+  — it lifts the internal snapshot safety backstop too, so on an asset-dense map (where whitelisted resource
+  nodes alone can exceed the backstop) the whole world is captured and nothing is ever truncated. A positive
+  `MaxResults` keeps the backstop as a memory/scan-time guard.
+
+### Changed
+- **BCH contract: render every `status=down` boss row, not just `defeated=1`.** Clarified §B1 — a `down` row
+  can be `defeated=0` (a pooled V Blood awaiting respawn that nobody has beaten yet), which is most of the
+  board on a fresh server. Raphael must render those too, or the back half of the boss list (the `down` rows
+  that sort after the live ones) looks empty even though Faust sends every one. Faust's wire output was already
+  complete; this is a rendering-contract fix on the BCH side.
+
+## [0.16.2] - 2026-06-13
+
+Roaming-boss location via the game's own map tokens — the "combine." No wire change (**ApiVersion stays 18**);
+the `[FAUST:boss]` row is unchanged, more roamers just carry coordinates.
+
+### Fixed
+- **Roaming bosses now get a real location, not just status.** A roaming V Blood's combat entity is parked
+  off-map when no player is near, so its own transform — `LocalToWorld` *and* `Translation` — isn't its real
+  position, which is why 0.16.1's Translation read wasn't enough on its own. The board now **combines two
+  sources**: status / health / level from the combat entity (present for every boss) + location from the
+  game's own map-token tracking — blood-altar `Script_BloodAltar_TrackVBloodUnit_Shared` first, then the V
+  Blood map icon (`MapIconData.TargetUser`) — keyed by prefab GUID. A boss whose combat entity reads off-map
+  now takes its coordinates from the map token and reports `up`. Static bosses are unaffected. *(Pending
+  in-game confirmation via the new diagnostic.)*
+
+### Changed
+- **`.faust admin bossdiag` shows the map-token resolution.** A `Map tokens: N resolved; M rescued` summary
+  line plus a `token=(x,z)` column per boss, so one run shows whether the combine is supplying positions and
+  which roamers it rescues (and says plainly if neither token source carries positions on this server).
+
+## [0.16.1] - 2026-06-13
+
+Boss-board position fix for **roaming** V Bloods. No wire-shape change (**ApiVersion stays 18**); the
+`[FAUST:boss]` row is unchanged — more bosses now simply report `status=up` with live coordinates.
+
+### Fixed
+- **Roaming bosses no longer read `down`.** The board read each V Blood's position from `LocalToWorld` — the
+  render matrix — which goes **stale** for a streamed-out / pooled entity (a roaming boss far from any player).
+  That, not a `MapLimit` cutoff, is why ~half the roster (Clive, Lidia, Angram, the nearest boss to the admin,
+  etc. — scattered map-wide) read `status=down` with no coords even on a one-player dev server. The board now
+  reads **`Translation`** (the sim-authoritative current position) first and falls back to `LocalToWorld`,
+  taking whichever source is on-map. Statically-placed bosses are unaffected; roamers the server is still
+  tracking now report `up` with their live location. *(Closes the §18b field report; pending in-game confirm.)*
+
+### Changed
+- **`.faust admin bossdiag` is far more informative.** The no-filter summary now reports placement by BOTH
+  `LocalToWorld` and `Translation` (`LTW[on/off/none] · TR[on/off/none]`), the on-map **placed bounds**, the
+  off-map **coordinate clusters** for each source (one dominant cluster = a pooled park point; many spread
+  points = real far coords), and an explicit `off-LTW-but-on-TR` count — the signal that pinpointed this bug.
+  Per-entity rows now show `ltw=(x,z)` and `tr=(x,z)` side by side. New `bossdiag icons` dumps the map-icon
+  picture (how icons link to their unit + where they sit) for further investigation if needed.
+- **World-scan default cap raised 2000 → 10000, with `0` = unlimited.** `[Faust.WorldScan] MaxResults` is the
+  safety bound on the snapshot, applied BEFORE the query filter (scanned units-first, then nodes) — so on an
+  asset-dense map a low cap could silently exclude matching assets past the limit. The default is now 10000,
+  the setting doc spells out the pre-filter behavior, and `0` means unlimited (guaranteed-complete results).
+  Live-tunable: `.faust admin setglobal worldscanmaxresults=0`. (Existing `.cfg` values are preserved across
+  upgrades, so change it live or edit the `.cfg` to pick up the new default.)
+
 ## [0.16.0] - 2026-06-12
 
 In-game configuration, two new investigation features, and the open Raphael server-side items. **ApiVersion

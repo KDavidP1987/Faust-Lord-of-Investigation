@@ -66,11 +66,17 @@ namespace Faust.Commands;
 /// **`worldscan`** (`.faust api worldscan [type=…,id=…,bloodtype=…,bloodqmin=…] [page]`) — a filtered map of
 /// NPC units (with blood type/quality) + resource nodes (ores/trees/plants), from an admin-curated prefab
 /// whitelist (`.faust admin worldscan …`), cached + rate-limited via `[Faust.WorldScan] ScanIntervalSeconds`.
+///
+/// ApiVersion 19 (heatmap time windows): `.faust api heatmap` gains an optional `days` arg
+/// (`.faust api heatmap [scope] [days] [page]`, days 0 = all-time, N = last N UTC days — today/week/month),
+/// and `[FAUST:hmhead]` grows `days=`/`retentiondays=`. Backed by a retention-pruned per-day layer
+/// (`[Faust.Heatmap] RetentionDays`, default 30); the all-time map (days=0) is unchanged and never pruned.
+/// Additive — an older Raphael omits `days` and still reads the all-time map exactly as before.
 /// </summary>
 [CommandGroup("faust api")]
 internal static class ApiCommands
 {
-    const int ApiVersion = 18;
+    const int ApiVersion = 19;
 
     static readonly string[] FeatureOrder =
     {
@@ -775,11 +781,12 @@ internal static class ApiCommands
 
     // ---- Player-position heat map (density grid; per-player or server-wide) ----
 
-    [Command("heatmap", description: "BCH: player-position heat map (density grid). Usage: .faust api heatmap [<all|name|steamId>] [page]")]
-    public static void Heatmap(ChatCommandContext ctx, string target = "all", int page = 1)
+    [Command("heatmap", description: "BCH: player-position heat map (density grid). Usage: .faust api heatmap [<all|name|steamId>] [days=0] [page] (days 0 = all-time)")]
+    public static void Heatmap(ChatCommandContext ctx, string target = "all", int days = 0, int page = 1)
     {
         var gate = FaustAccessGate.TryAuthorize(ctx, Settings.Heatmap);
         if (!gate.Allowed) { ctx.Reply(gate.DenyWire); return; }
+        if (days < 0) days = 0;
 
         ulong? scope = null; string scopeTok = "server";
         if (!string.Equals(target, "all", StringComparison.OrdinalIgnoreCase)
@@ -790,25 +797,27 @@ internal static class ApiCommands
             scope = sid; scopeTok = sid.ToString();
         }
 
-        var hm = Core.Heatmap.GetHeatmap(scope);
+        var hm = Core.Heatmap.GetHeatmap(scope, days);
 
-        // Header (page 1): scope, grid resolution, sample total, distinct cells, the OCCUPIED cell bounds,
-        // the FULL-MAP cell extent (§11b — so BCH can draw at a consistent map scale even with sparse data),
-        // and whether collection is currently on (so BCH can tell "off" from "on but no data yet").
+        // Header (page 1): scope, the time window (days; 0 = all-time), grid resolution, sample total, distinct
+        // cells, the OCCUPIED cell bounds, the FULL-MAP cell extent (§11b — so BCH can draw at a consistent map
+        // scale even with sparse data), and whether collection is currently on (so BCH tells "off" from "on but
+        // no data yet"). days= is additive: an older Raphael ignores it and still reads the all-time map.
         if (page <= 1)
         {
             string mapbounds = "";
             if (hm.CellSize > 0 && Core.Castle.TryGetMapWorldBounds(out var mnx, out var mnz, out var mxx, out var mxz))
                 mapbounds = $" mapbounds={CellIdx(mnx, hm.CellSize)}:{CellIdx(mnz, hm.CellSize)}:" +
                             $"{CellIdx(mxx, hm.CellSize)}:{CellIdx(mxz, hm.CellSize)}";
-            ctx.Reply($"[FAUST:hmhead] scope={scopeTok} cell={F(hm.CellSize)} samples={hm.Samples} " +
+            ctx.Reply($"[FAUST:hmhead] scope={scopeTok} days={days} retentiondays={Settings.HeatmapRetentionDays.Value} " +
+                      $"cell={F(hm.CellSize)} samples={hm.Samples} " +
                       $"cells={hm.Cells.Count} bounds={hm.MinCx}:{hm.MinCz}:{hm.MaxCx}:{hm.MaxCz}{mapbounds} " +
                       $"collecting={(Settings.HeatmapEnabled.Value ? 1 : 0)}");
         }
 
         // Cells packed compactly (cx:cz:count, …) so a dense map isn't thousands of chat lines.
         var rows = PackCells(hm.Cells);
-        if (Wire.SendPage(ctx, $"heatmap scope={scopeTok}", rows, page)) FaustAccessGate.Commit(ctx, gate);
+        if (Wire.SendPage(ctx, $"heatmap scope={scopeTok} days={days}", rows, page)) FaustAccessGate.Commit(ctx, gate);
     }
 
     // ---- helpers ----
